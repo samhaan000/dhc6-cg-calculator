@@ -55,28 +55,40 @@ function parseZoneTotals(raw){
 }
 function parsePassengerListTitles(raw){
   let text=normalizeOcr(raw).toUpperCase();
-  let male=0,female=0,child=0;
+  let male=0,female=0,child=0,unknown=0;
   let hasPassengerList=/PASSENGER\s+LIST|FARE\s+SEQ\s+SEAT|TOTAL\/SEG\/CL|CLASS\s+[A-Z]/i.test(text);
   let lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  let passengerId='(?:\\d{3,4}|[0O]\\d{1,3}|OSS|OS8|O1|OT)';
   lines.forEach(line=>{
     if(/PASSENGER LIST|TOTAL\/SEG|FARE SEQ|CLASS |ACFT REGN|MALD(I|1)VIAN|PAGE/.test(line))return;
-    let normalized=line
-      .replace(/_/g,' ')
-      .replace(/\+/g,' ')
-      .replace(/\bM R\b/g,' MR')
-      .replace(/\bM RS\b/g,' MRS')
-      .replace(/\bM S\b/g,' MS')
-      .replace(/\bM STR\b/g,' MSTR');
-    let tokens=normalized.match(/\b(MSTR|MASTER|CHD|CHILD|INF|MRS|MISS|MS|MR)\b/g)||[];
-    tokens.forEach(t=>{
-      if(t==='INF')return;
-      if(t==='MSTR'||t==='MASTER'||t==='CHD'||t==='CHILD'){child++;return;}
-      if(t==='MRS'||t==='MISS'||t==='MS'){female++;return;}
-      if(t==='MR'){male++;return;}
+    let chunks=[];
+    let re=new RegExp('([A-Z\\[\\] \\/_+]+?)\\s*'+passengerId+'(?:\\s|$)','gi');
+    let m;
+    while((m=re.exec(line))!==null){
+      let chunk=(m[1]||'').trim();
+      if(chunk.includes('/'))chunks.push(chunk);
+    }
+    if(!chunks.length&&line.includes('/'))chunks=[line];
+    chunks.forEach(chunk=>{
+      let normalized=chunk
+        .replace(/_/g,' ')
+        .replace(/\+/g,' ')
+        .replace(/\bM R\b/g,' MR')
+        .replace(/\bM RS\b/g,' MRS')
+        .replace(/\bM S\b/g,' MS')
+        .replace(/\bM STR\b/g,' MSTR')
+        .replace(/[^A-Z\/ ]/g,' ')
+        .replace(/\s+/g,' ')
+        .trim();
+      let last=(normalized.split('/').pop()||normalized).replace(/\s+/g,'').trim();
+      if(/(MSTR|MASTER|CHD|CHILD)$/.test(last)||/\b(MSTR|MASTER|CHD|CHILD)\b/.test(normalized)){child++;return;}
+      if(/(MRS|MISS|MS)$/.test(last)||/\b(MRS|MISS|MS)\b/.test(normalized)){female++;return;}
+      if(/(MR)$/.test(last)||/\bMR\b/.test(normalized)){male++;return;}
+      if(/\+$/.test(chunk)||chunk.includes('+'))unknown++;
     });
   });
   let total=male+female+child;
-  if(total>0&&(hasPassengerList||total>=5))return{male,female,child,source:'passenger list titles'};
+  if(total>0&&(hasPassengerList||total>=5))return{male,female,child,unknown,source:'passenger list titles'};
   return null;
 }
 function parseSimpleCounts(raw){
@@ -124,7 +136,8 @@ async function runManifestOCR(){
     scanEl('ocrText').value=text.trim();
     let c=parseManifestCounts(text);
     scanEl('scanMale').value=c.male;scanEl('scanFemale').value=c.female;scanEl('scanChild').value=c.child;
-    setScanStatus('Detected '+c.male+' male, '+c.female+' female, '+c.child+' child from '+(c.source||'OCR')+'. Review/correct before applying.');
+    let extra=c.unknown?' Unknown title entries: '+c.unknown+'.':'';
+    setScanStatus('Detected '+c.male+' male, '+c.female+' female, '+c.child+' child from '+(c.source||'OCR')+'.'+extra+' Review/correct before applying.');
   }catch(e){setScanStatus('OCR failed. Try a clearer photo or enter counts manually.');}
 }
 function applyScannedPassengers(){
