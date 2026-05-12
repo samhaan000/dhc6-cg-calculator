@@ -54,8 +54,27 @@ function clearScan(){
   if(scanEl('manifestFile'))scanEl('manifestFile').value='';
   setScanStatus('Scanner cleared.');
 }
+function compactBaggageSection(){
+  let style=document.createElement('style');
+  style.textContent=`
+    .bagCompact .four{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
+    .bagCompact .four>div{border:1px solid rgba(180,230,255,.16);border-radius:16px;background:rgba(255,255,255,.045);padding:10px}
+    .bagCompact label{font-size:11px;margin-bottom:5px;white-space:normal;line-height:1.15}
+    .bagCompact input{padding:10px 10px;font-size:15px;border-radius:12px}
+    .bagCompact .small{font-size:10px;margin-top:5px;color:#7fb9cc}
+    @media(min-width:820px){.bagCompact .four{grid-template-columns:repeat(3,minmax(0,1fr))!important}.bagCompact .four>div{min-height:92px}}
+    @media(max-width:380px){.bagCompact .four{gap:8px!important}.bagCompact .four>div{padding:9px}.bagCompact input{font-size:14px;padding:9px 8px}.bagCompact label{font-size:10px}}
+  `;
+  document.head.appendChild(style);
+  document.querySelectorAll('.card h2').forEach(h=>{
+    if((h.textContent||'').toLowerCase().includes('stretcher')){
+      let card=h.closest('.card'); if(card) card.classList.add('bagCompact');
+    }
+  });
+}
 window.addEventListener('DOMContentLoaded',function(){
   let b=scanEl('scanBtn');if(b)b.onclick=runManifestOCR;
   let a=scanEl('applyScanBtn');if(a)a.onclick=applyScannedPassengers;
   let c=scanEl('clearScanBtn');if(c)c.onclick=clearScan;
+  compactBaggageSection();
 });
