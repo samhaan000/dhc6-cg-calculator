@@ -1,33 +1,47 @@
 function scanEl(id){return document.getElementById(id)}
 function getScanInt(id){let v=parseInt(scanEl(id).value,10);return Number.isFinite(v)&&v>0?v:0}
 function setScanStatus(msg){let s=scanEl('scanStatus');if(s)s.textContent=msg}
-function cleanOcrText(text){
+function normalizeOcr(text){
   return (text||'')
     .replace(/\r/g,'\n')
     .replace(/[~–—]/g,'-')
-    .replace(/[Oo]/g,'0')
-    .replace(/\s+/g,' ')
+    .replace(/[|]/g,'I')
+    .replace(/[ \t]+/g,' ')
     .trim();
 }
 function sanePax(v){
-  v=parseInt(v,10);
+  v=parseInt(String(v).replace(/[^0-9]/g,''),10);
   return Number.isFinite(v)&&v>=0&&v<=999?v:null;
 }
-function parseCheckedInValue(upper,label){
-  let patterns=[
-    new RegExp(label+'\\s+(?:CHECKED[ -]?IN\\/BOARDED|CHECKED[ -]?IN|BOARDED)\\s*[-:=]?\\s*(\\d{1,3})','i'),
-    new RegExp(label+'\\s+.*?(?:CHECKED[ -]?IN\\/BOARDED|CHECKED[ -]?IN|BOARDED)\\s*[-:=]?\\s*(\\d{1,3})','i')
-  ];
-  for(let re of patterns){let m=upper.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}}
+function parseCheckedInValue(raw,label){
+  let lines=normalizeOcr(raw).split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  let labelRe=new RegExp('^\\s*'+label+'\\b','i');
+  let checkedRe=/(CHECKED[ -]?IN\/?BOARDED|CHECKED[ -]?IN|BOARDED)/i;
+  for(let line of lines){
+    if(!labelRe.test(line))continue;
+    if(!checkedRe.test(line))continue;
+    let nums=line.match(/\d{1,3}/g)||[];
+    if(nums.length){let v=sanePax(nums[nums.length-1]);if(v!==null)return v;}
+  }
+  let flat=normalizeOcr(raw).toUpperCase();
+  let re=new RegExp('(?:^|[^A-Z])'+label+'\\b[^\n]{0,80}?(?:CHECKED[ -]?IN\\/?BOARDED|CHECKED[ -]?IN|BOARDED)\\s*[-:=]?\\s*(\\d{1,3})','i');
+  let m=flat.match(re);
+  if(m){let v=sanePax(m[1]);if(v!==null)return v;}
   return null;
 }
-function parseManifestedValue(upper,label){
-  let re=new RegExp(label+'\\s+MANIFESTED\\s*[-:=]?\\s*(\\d{1,3})','i');
-  let m=upper.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}
+function parseManifestedValue(raw,label){
+  let lines=normalizeOcr(raw).split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  let labelRe=new RegExp('^\\s*'+label+'\\b','i');
+  for(let line of lines){
+    if(!labelRe.test(line))continue;
+    if(!/MANIFESTED/i.test(line))continue;
+    let nums=line.match(/\d{1,3}/g)||[];
+    if(nums.length){let v=sanePax(nums[0]);if(v!==null)return v;}
+  }
   return null;
 }
-function parseZoneTotals(upper){
-  let lines=upper.split(/\n|(?=TOTALS\s*[:])/).map(x=>x.trim()).filter(Boolean);
+function parseZoneTotals(raw){
+  let lines=normalizeOcr(raw).toUpperCase().split(/\n+/).map(x=>x.trim()).filter(Boolean);
   for(let line of lines){
     if(!/^TOTALS\s*[:]?/.test(line))continue;
     let nums=(line.match(/\d{1,4}/g)||[]).map(x=>parseInt(x,10));
@@ -40,42 +54,40 @@ function parseZoneTotals(upper){
   return null;
 }
 function parseSimpleCounts(raw){
-  let upper=raw.toUpperCase();
-  function explicit(labels){
-    for(let label of labels){
-      let re=new RegExp('(?:^|\\n|\\s)'+label+'\\s*[:=\\-]?\\s*(\\d{1,3})','i');
-      let m=upper.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}
-    }
+  let text=normalizeOcr(raw);
+  function explicit(label){
+    let lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    let re=new RegExp('^\\s*'+label+'\\b\\s*[:=\\-]?\\s*(\\d{1,3})','i');
+    for(let line of lines){let m=line.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}}
     return 0;
   }
-  let male=explicit(['MALE','M']);
-  let female=explicit(['FEMALE','F']);
-  let child=explicit(['CHILD','CHD','CHILDREN','C']);
+  let male=explicit('MALE');
+  let female=explicit('FEMALE');
+  let child=explicit('CHILD|CHD|CHILDREN');
   if(male||female||child)return{male,female,child,source:'simple totals'};
   male=0;female=0;child=0;
-  raw.split(/\n+/).forEach(line=>{
+  text.split(/\n+/).forEach(line=>{
     let l=line.toUpperCase().trim();
     if(!l||l.includes('GENDER')||l.includes('SEX'))return;
     if(/\b(CHD|CHILD|CHILDREN)\b/.test(l)){child++;return;}
-    if(/\b(FEMALE|F)\b/.test(l)){female++;return;}
-    if(/\b(MALE|M)\b/.test(l)){male++;return;}
+    if(/\bFEMALE\b|\bF\b/.test(l)){female++;return;}
+    if(/\bMALE\b|\bM\b/.test(l)){male++;return;}
   });
   return{male,female,child,source:'row count'};
 }
 function parseManifestCounts(text){
   let raw=(text||'').replace(/\r/g,'\n');
-  let upper=cleanOcrText(raw).toUpperCase();
-  let male=parseCheckedInValue(upper,'MALE');
-  let female=parseCheckedInValue(upper,'FEMALE');
-  let child=parseCheckedInValue(upper,'CHILD');
+  let child=parseCheckedInValue(raw,'CHILD');
+  let female=parseCheckedInValue(raw,'FEMALE');
+  let male=parseCheckedInValue(raw,'MALE');
   if(male!==null||female!==null||child!==null){
     return{male:male||0,female:female||0,child:child||0,source:'checked-in/boarded totals'};
   }
-  let zone=parseZoneTotals(upper);
+  let zone=parseZoneTotals(raw);
   if(zone)return zone;
-  male=parseManifestedValue(upper,'MALE');
-  female=parseManifestedValue(upper,'FEMALE');
-  child=parseManifestedValue(upper,'CHILD');
+  child=parseManifestedValue(raw,'CHILD');
+  female=parseManifestedValue(raw,'FEMALE');
+  male=parseManifestedValue(raw,'MALE');
   if(male!==null||female!==null||child!==null){
     return{male:male||0,female:female||0,child:child||0,source:'manifested totals'};
   }
