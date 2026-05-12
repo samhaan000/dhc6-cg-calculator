@@ -1,20 +1,57 @@
 function scanEl(id){return document.getElementById(id)}
 function getScanInt(id){let v=parseInt(scanEl(id).value,10);return Number.isFinite(v)&&v>0?v:0}
 function setScanStatus(msg){let s=scanEl('scanStatus');if(s)s.textContent=msg}
-function parseManifestCounts(text){
-  let raw=(text||'').replace(/\r/g,'\n');
+function cleanOcrText(text){
+  return (text||'')
+    .replace(/\r/g,'\n')
+    .replace(/[~–—]/g,'-')
+    .replace(/[Oo]/g,'0')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function sanePax(v){
+  v=parseInt(v,10);
+  return Number.isFinite(v)&&v>=0&&v<=999?v:null;
+}
+function parseCheckedInValue(upper,label){
+  let patterns=[
+    new RegExp(label+'\\s+(?:CHECKED[ -]?IN\\/BOARDED|CHECKED[ -]?IN|BOARDED)\\s*[-:=]?\\s*(\\d{1,3})','i'),
+    new RegExp(label+'\\s+.*?(?:CHECKED[ -]?IN\\/BOARDED|CHECKED[ -]?IN|BOARDED)\\s*[-:=]?\\s*(\\d{1,3})','i')
+  ];
+  for(let re of patterns){let m=upper.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}}
+  return null;
+}
+function parseManifestedValue(upper,label){
+  let re=new RegExp(label+'\\s+MANIFESTED\\s*[-:=]?\\s*(\\d{1,3})','i');
+  let m=upper.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}
+  return null;
+}
+function parseZoneTotals(upper){
+  let lines=upper.split(/\n|(?=TOTALS\s*[:])/).map(x=>x.trim()).filter(Boolean);
+  for(let line of lines){
+    if(!/^TOTALS\s*[:]?/.test(line))continue;
+    let nums=(line.match(/\d{1,4}/g)||[]).map(x=>parseInt(x,10));
+    if(nums.length>=3){
+      let male=nums[0],female=nums[1],child=nums[2];
+      let total=nums[3]||male+female+child;
+      if(male<=300&&female<=300&&child<=100&&Math.abs((male+female+child)-total)<=5){return{male,female,child,source:'zone totals'}}
+    }
+  }
+  return null;
+}
+function parseSimpleCounts(raw){
   let upper=raw.toUpperCase();
   function explicit(labels){
     for(let label of labels){
-      let re=new RegExp('(?:^|\\n|\\s)'+label+'\\s*[:=\\-]?\\s*(\\d{1,2})','i');
-      let m=upper.match(re);if(m)return parseInt(m[1],10)||0;
+      let re=new RegExp('(?:^|\\n|\\s)'+label+'\\s*[:=\\-]?\\s*(\\d{1,3})','i');
+      let m=upper.match(re);if(m){let v=sanePax(m[1]);if(v!==null)return v;}
     }
     return 0;
   }
   let male=explicit(['MALE','M']);
   let female=explicit(['FEMALE','F']);
   let child=explicit(['CHILD','CHD','CHILDREN','C']);
-  if(male||female||child)return{male,female,child};
+  if(male||female||child)return{male,female,child,source:'simple totals'};
   male=0;female=0;child=0;
   raw.split(/\n+/).forEach(line=>{
     let l=line.toUpperCase().trim();
@@ -23,7 +60,26 @@ function parseManifestCounts(text){
     if(/\b(FEMALE|F)\b/.test(l)){female++;return;}
     if(/\b(MALE|M)\b/.test(l)){male++;return;}
   });
-  return{male,female,child};
+  return{male,female,child,source:'row count'};
+}
+function parseManifestCounts(text){
+  let raw=(text||'').replace(/\r/g,'\n');
+  let upper=cleanOcrText(raw).toUpperCase();
+  let male=parseCheckedInValue(upper,'MALE');
+  let female=parseCheckedInValue(upper,'FEMALE');
+  let child=parseCheckedInValue(upper,'CHILD');
+  if(male!==null||female!==null||child!==null){
+    return{male:male||0,female:female||0,child:child||0,source:'checked-in/boarded totals'};
+  }
+  let zone=parseZoneTotals(upper);
+  if(zone)return zone;
+  male=parseManifestedValue(upper,'MALE');
+  female=parseManifestedValue(upper,'FEMALE');
+  child=parseManifestedValue(upper,'CHILD');
+  if(male!==null||female!==null||child!==null){
+    return{male:male||0,female:female||0,child:child||0,source:'manifested totals'};
+  }
+  return parseSimpleCounts(raw);
 }
 async function runManifestOCR(){
   let input=scanEl('manifestFile');
@@ -36,7 +92,7 @@ async function runManifestOCR(){
     scanEl('ocrText').value=text.trim();
     let c=parseManifestCounts(text);
     scanEl('scanMale').value=c.male;scanEl('scanFemale').value=c.female;scanEl('scanChild').value=c.child;
-    setScanStatus('Detected counts loaded below. Review/correct before applying.');
+    setScanStatus('Detected '+c.male+' male, '+c.female+' female, '+c.child+' child from '+(c.source||'OCR')+'. Review/correct before applying.');
   }catch(e){setScanStatus('OCR failed. Try a clearer photo or enter counts manually.');}
 }
 function applyScannedPassengers(){
@@ -54,27 +110,8 @@ function clearScan(){
   if(scanEl('manifestFile'))scanEl('manifestFile').value='';
   setScanStatus('Scanner cleared.');
 }
-function compactBaggageSection(){
-  let style=document.createElement('style');
-  style.textContent=`
-    .bagCompact .four{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
-    .bagCompact .four>div{border:1px solid rgba(180,230,255,.16);border-radius:16px;background:rgba(255,255,255,.045);padding:10px}
-    .bagCompact label{font-size:11px;margin-bottom:5px;white-space:normal;line-height:1.15}
-    .bagCompact input{padding:10px 10px;font-size:15px;border-radius:12px}
-    .bagCompact .small{font-size:10px;margin-top:5px;color:#7fb9cc}
-    @media(min-width:820px){.bagCompact .four{grid-template-columns:repeat(3,minmax(0,1fr))!important}.bagCompact .four>div{min-height:92px}}
-    @media(max-width:380px){.bagCompact .four{gap:8px!important}.bagCompact .four>div{padding:9px}.bagCompact input{font-size:14px;padding:9px 8px}.bagCompact label{font-size:10px}}
-  `;
-  document.head.appendChild(style);
-  document.querySelectorAll('.card h2').forEach(h=>{
-    if((h.textContent||'').toLowerCase().includes('stretcher')){
-      let card=h.closest('.card'); if(card) card.classList.add('bagCompact');
-    }
-  });
-}
 window.addEventListener('DOMContentLoaded',function(){
   let b=scanEl('scanBtn');if(b)b.onclick=runManifestOCR;
   let a=scanEl('applyScanBtn');if(a)a.onclick=applyScannedPassengers;
   let c=scanEl('clearScanBtn');if(c)c.onclick=clearScan;
-  compactBaggageSection();
 });
