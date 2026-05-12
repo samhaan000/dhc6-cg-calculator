@@ -53,6 +53,32 @@ function parseZoneTotals(raw){
   }
   return null;
 }
+function parsePassengerListTitles(raw){
+  let text=normalizeOcr(raw).toUpperCase();
+  let male=0,female=0,child=0;
+  let hasPassengerList=/PASSENGER\s+LIST|FARE\s+SEQ\s+SEAT|TOTAL\/SEG\/CL|CLASS\s+[A-Z]/i.test(text);
+  let lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  lines.forEach(line=>{
+    if(/PASSENGER LIST|TOTAL\/SEG|FARE SEQ|CLASS |ACFT REGN|MALD(I|1)VIAN|PAGE/.test(line))return;
+    let normalized=line
+      .replace(/_/g,' ')
+      .replace(/\+/g,' ')
+      .replace(/\bM R\b/g,' MR')
+      .replace(/\bM RS\b/g,' MRS')
+      .replace(/\bM S\b/g,' MS')
+      .replace(/\bM STR\b/g,' MSTR');
+    let tokens=normalized.match(/\b(MSTR|MASTER|CHD|CHILD|INF|MRS|MISS|MS|MR)\b/g)||[];
+    tokens.forEach(t=>{
+      if(t==='INF')return;
+      if(t==='MSTR'||t==='MASTER'||t==='CHD'||t==='CHILD'){child++;return;}
+      if(t==='MRS'||t==='MISS'||t==='MS'){female++;return;}
+      if(t==='MR'){male++;return;}
+    });
+  });
+  let total=male+female+child;
+  if(total>0&&(hasPassengerList||total>=5))return{male,female,child,source:'passenger list titles'};
+  return null;
+}
 function parseSimpleCounts(raw){
   let text=normalizeOcr(raw);
   function explicit(label){
@@ -65,15 +91,7 @@ function parseSimpleCounts(raw){
   let female=explicit('FEMALE');
   let child=explicit('CHILD|CHD|CHILDREN');
   if(male||female||child)return{male,female,child,source:'simple totals'};
-  male=0;female=0;child=0;
-  text.split(/\n+/).forEach(line=>{
-    let l=line.toUpperCase().trim();
-    if(!l||l.includes('GENDER')||l.includes('SEX'))return;
-    if(/\b(CHD|CHILD|CHILDREN)\b/.test(l)){child++;return;}
-    if(/\bFEMALE\b|\bF\b/.test(l)){female++;return;}
-    if(/\bMALE\b|\bM\b/.test(l)){male++;return;}
-  });
-  return{male,female,child,source:'row count'};
+  return{male:0,female:0,child:0,source:'no counts found'};
 }
 function parseManifestCounts(text){
   let raw=(text||'').replace(/\r/g,'\n');
@@ -91,6 +109,8 @@ function parseManifestCounts(text){
   if(male!==null||female!==null||child!==null){
     return{male:male||0,female:female||0,child:child||0,source:'manifested totals'};
   }
+  let titleCounts=parsePassengerListTitles(raw);
+  if(titleCounts)return titleCounts;
   return parseSimpleCounts(raw);
 }
 async function runManifestOCR(){
