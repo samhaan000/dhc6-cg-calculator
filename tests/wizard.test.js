@@ -11,11 +11,13 @@ function test(name, fn) {
   catch (e) { console.error('  FAIL- ' + name + '\n        ' + e.message); process.exitCode = 1; }
 }
 
-// mirrors app.js buildGrid()/parseSeat()
+// mirrors app.js buildGrid()/parseSeat()/paxWeight()
 function parseSeat(s) { const m = /^([1-5])([ABC])$/i.exec(String(s || '').trim()); return m ? { row: +m[1] - 1, col: 'ABC'.indexOf(m[2].toUpperCase()) } : null; }
+function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I'; }
+function paxWeight(p) { const w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return cfg.paxWeights[p.cat] || 0; }
 function buildGrid(pax) {
   const g = [['E','E','E'],['E','E','E'],['E','E','E'],['E','E','E'],['E','E','E']];
-  pax.forEach(p => { const s = parseSeat(p.seat); if (s && (p.cat === 'M' || p.cat === 'F' || p.cat === 'C')) g[s.row][s.col] = p.cat; });
+  pax.forEach(p => { const s = parseSeat(p.seat); if (s && isCat(p.cat)) g[s.row][s.col] = paxWeight(p); });
   return g;
 }
 
@@ -32,10 +34,16 @@ test('passengers map to seat rows and produce the right moment', () => {
 test('needs-review passengers (no seat / unknown cat) are excluded from the grid', () => {
   const pax = [{ cat: 'M', seat: '1A' }, { cat: '?', seat: '1B' }, { cat: 'F', seat: '' }];
   const g = buildGrid(pax);
-  assert.strictEqual(g[0][0], 'M');
+  assert.strictEqual(g[0][0], 189);   // male standard weight placed
   assert.strictEqual(g[0][1], 'E');   // unknown category not placed
   const m = computeMetrics({ seats: g, dow: 9142, doi: 13.8 }, cfg);
   assert.strictEqual(m.pax, 189);     // only the valid passenger contributes
+});
+
+test('override weights and infant category flow through to the engine', () => {
+  const pax = [{ cat: 'M', seat: '1A', weight: 205 }, { cat: 'I', seat: '1B' }, { cat: 'F', seat: '2A' }];
+  const m = computeMetrics({ seats: buildGrid(pax), dow: 9142, doi: 13.8 }, cfg);
+  assert.strictEqual(m.pax, 205 + cfg.paxWeights.I + cfg.paxWeights.F);
 });
 
 test('OCR parser returns categories, totals and confidence', () => {

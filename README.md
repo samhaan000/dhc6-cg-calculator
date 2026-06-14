@@ -31,9 +31,13 @@ flagged "needs review" and export is blocked until resolved.
 ## Tests
 
 ```sh
-node tests/engine.test.js
-node tests/wizard.test.js
+npm install   # dev only: jsdom, for the headless smoke test
+npm test      # engine + wizard unit tests + headless wizard smoke test
 ```
+
+`tests/smoke.test.js` loads the real page in jsdom and drives the whole wizard
+(it skips automatically if jsdom isn't installed). The engine/wizard unit tests
+need no dependencies.
 
 ## Run / deploy
 
