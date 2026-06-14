@@ -3,506 +3,178 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0a131c">
+<meta name="theme-color" content="#2f6df6">
 <link rel="manifest" href="manifest.webmanifest">
 <title>DHC-6 CG Calculator</title>
 <style>
-/* ============================================================
-   DHC-6 CG Calculator — design system
-   Dark, high-contrast EFB-style UI. Mobile-first.
-   ============================================================ */
 :root{
-  --bg:#0a131c;
-  --surface:#10202e;
-  --surface-2:#15293a;
-  --elev:#1b3346;
-  --line:rgba(143,184,209,.14);
-  --line-2:rgba(143,184,209,.26);
-  --text:#eef5fa;
-  --muted:#94aebd;
-  --accent:#39a0ff;
-  --accent-2:#1ec7ae;
-  --good:#34d399;
-  --good-ink:#062a1b;
-  --warn:#f7b73c;
-  --warn-ink:#2e2206;
-  --bad:#ff6363;
-  --bad-ink:#2e0c0c;
-  --radius:18px;
-  --radius-sm:12px;
-  --shadow:0 16px 40px rgba(0,0,0,.4);
-  --shadow-sm:0 6px 18px rgba(0,0,0,.28);
-  --tap:46px;
+  --bg:#eef2f7;--surface:#fff;--ink:#102230;--muted:#5b6b7a;--line:#e4e9f0;
+  --primary:#2f6df6;--primary-d:#2459d6;
+  --good:#15a34a;--good-bg:#dcfce7;--amber:#b45309;--amber-bg:#fef3c7;--amber-bg:#fef3c7;
+  --bad:#dc2626;--bad-bg:#fee2e2;--hl-bg:#eaf1ff;
+  --radius:16px;--radius-sm:11px;--shadow:0 6px 18px rgba(16,34,48,.08);--maxw:560px;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{
-  margin:0;color:var(--text);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:15px;line-height:1.45;
-  background:
-    radial-gradient(1100px 600px at 12% -8%,rgba(57,160,255,.14),transparent 60%),
-    radial-gradient(900px 500px at 100% 0%,rgba(30,199,174,.10),transparent 55%),
-    var(--bg);
-  background-attachment:fixed;
-  min-height:100vh;
-}
-.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.45}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .sm{font-size:12.5px}
 
-/* ---------- App bar ---------- */
-.appbar{
-  position:sticky;top:0;z-index:30;
-  display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
-  padding:12px 16px;margin-bottom:16px;
-  background:rgba(10,19,28,.78);
-  border-bottom:1px solid var(--line);
-  backdrop-filter:saturate(140%) blur(14px);
-}
-.brand{display:flex;align-items:center;gap:12px;min-width:0}
-.logo{
-  width:44px;height:44px;border-radius:13px;flex:0 0 auto;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),var(--accent-2));
-  box-shadow:0 8px 20px rgba(57,160,255,.3);
-}
-.logo svg{width:26px;height:26px;stroke:#04141f;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.brand h1{margin:0;font-size:clamp(18px,2.4vw,22px);letter-spacing:.2px;line-height:1.1}
-.brand .sub{display:flex;align-items:center;gap:8px;margin-top:3px;color:var(--muted);font-size:12px}
-.badge{
-  display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
-  font-size:11px;font-weight:700;letter-spacing:.3px;
-  color:#bff6ec;background:rgba(30,199,174,.14);border:1px solid rgba(30,199,174,.4);
-}
-.badge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent-2);box-shadow:0 0 0 3px rgba(30,199,174,.25)}
-.actions{display:flex;gap:8px;flex-wrap:wrap}
+/* ---- chrome ---- */
+.appbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:11px;max-width:var(--maxw);margin:0 auto;padding:12px 16px;background:linear-gradient(135deg,var(--primary),#3aa0ff);color:#fff}
+.appbar .logo{width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.18);display:grid;place-items:center}
+.appbar .logo svg{width:22px;height:22px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.appbar h1{margin:0;font-size:17px;font-weight:800;letter-spacing:.2px}
+.appbar .tag{font-size:11px;opacity:.9}
+.stepper{position:sticky;top:60px;z-index:19;display:flex;gap:6px;max-width:var(--maxw);margin:0 auto;padding:10px 12px;background:var(--bg);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.stepdot{flex:1 0 auto;min-width:62px;display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:0;cursor:pointer;color:var(--muted);font:inherit;padding:2px}
+.stepdot .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;background:#dbe3ec;color:#6b7b8a;transition:.15s}
+.stepdot .t{font-size:10.5px;font-weight:700;white-space:nowrap}
+.stepdot.on .n{background:var(--primary);color:#fff;box-shadow:0 0 0 4px rgba(47,109,246,.18)}
+.stepdot.on{color:var(--ink)}
+.stepdot.done .n{background:var(--good);color:#fff}
+.view{max-width:var(--maxw);margin:0 auto;padding:6px 16px 100px;display:grid;gap:14px}
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;justify-content:space-between;gap:12px;max-width:var(--maxw);margin:0 auto;padding:12px 16px;background:rgba(255,255,255,.92);border-top:1px solid var(--line);backdrop-filter:blur(8px)}
+.nav .btn{flex:1}
 
-/* ---------- Buttons ---------- */
-.btn{
-  appearance:none;border:1px solid transparent;border-radius:var(--radius-sm);
-  min-height:40px;padding:0 15px;font-size:13.5px;font-weight:700;letter-spacing:.2px;
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;color:#04141f;
-  background:linear-gradient(135deg,var(--accent-2),var(--accent));
-  transition:transform .12s ease,box-shadow .2s ease,filter .2s ease,background .2s ease;
-}
-.btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.btn:hover{filter:brightness(1.07);box-shadow:0 8px 22px rgba(57,160,255,.28)}
-.btn:active{transform:translateY(1px)}
-.btn.ghost{background:rgba(255,255,255,.05);border-color:var(--line-2);color:var(--text)}
-.btn.ghost:hover{background:rgba(255,255,255,.1);filter:none;box-shadow:none}
-.btn.danger{background:rgba(255,99,99,.12);border-color:rgba(255,99,99,.4);color:#ffd2d2}
-.btn.danger:hover{background:rgba(255,99,99,.2);filter:none;box-shadow:none}
-.btn:disabled{opacity:.45;cursor:not-allowed;filter:none;box-shadow:none;transform:none}
-.btn.block{width:100%}
+/* ---- cards / type ---- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+.card h2{margin:0 0 12px;font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#33485a}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.card-head h2{margin:0}
+.head-chip{font-size:13px;color:var(--muted)} .head-chip b{color:var(--ink)}
+h3{margin:0}
 
-/* ---------- Layout ---------- */
-.wrap{max-width:1180px;margin:0 auto;padding:0 16px 40px}
-.layout{display:grid;gap:16px;align-items:start}
-@media(min-width:1000px){
-  .layout{grid-template-columns:minmax(0,1.55fr) minmax(330px,.9fr)}
-  .col-side{position:sticky;top:80px}
-}
-.col-main,.col-side{display:grid;gap:16px;min-width:0}
-
-/* ---------- Cards ---------- */
-.card{
-  background:linear-gradient(180deg,rgba(255,255,255,.025),transparent),var(--surface);
-  border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow-sm);
-}
-.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px}
-.card-head h2{
-  margin:0;font-size:13px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#d6ecf6;
-  display:inline-flex;align-items:center;gap:9px;
-}
-.card-head h2 svg{width:18px;height:18px;flex:0 0 auto;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.head-chip{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text)}
-.head-chip .dot-sep{color:var(--muted)}
-h3{margin:0 0 9px;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#bcd6e2}
-.note{color:var(--muted);font-size:12px;line-height:1.45;margin:8px 0 0}
-.note.warn{color:#f3d79a}
-
-/* ---------- Forms ---------- */
-label{display:block;color:var(--muted);font-size:11.5px;font-weight:600;margin:0 0 6px;letter-spacing:.2px}
-input,select,textarea{
-  width:100%;min-height:var(--tap);padding:11px 13px;font-size:16px;color:var(--text);
-  background:#081521;border:1px solid var(--line-2);border-radius:var(--radius-sm);outline:none;
-  transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
-}
-select{cursor:pointer;appearance:none;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394aebd' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 12px center;padding-right:38px}
-textarea{min-height:90px;font-size:13px;resize:vertical}
-input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(57,160,255,.18);background:#0a1a28}
-input[readonly]{color:var(--muted);background:#0a1623}
-.fieldset{display:grid;gap:12px}
+/* ---- forms ---- */
+.field{margin:0 0 12px} .field:last-child{margin-bottom:0}
+label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px}
+input,select,textarea{width:100%;min-height:46px;padding:11px 12px;font-size:16px;color:var(--ink);background:#fff;border:1.5px solid var(--line);border-radius:var(--radius-sm);outline:none;transition:border-color .15s,box-shadow .15s}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235b6b7a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:34px;cursor:pointer}
+textarea{min-height:80px;font-size:14px;resize:vertical}
+input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(47,109,246,.15)}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.subcard{border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(255,255,255,.025);padding:14px;display:grid;gap:12px}
-.subcard.accent{border-color:rgba(30,199,174,.3);background:rgba(30,199,174,.05)}
-.subcard.amber{border-color:rgba(247,183,60,.3);background:rgba(247,183,60,.05)}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.row-2{display:grid;grid-template-columns:1fr auto;gap:8px}
+.grid-2 .field,.grid-3 .field{margin:0}
 
-/* ---------- Stat readouts ---------- */
-.stats{display:grid;gap:10px}
-.stat{
-  border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(255,255,255,.035);
-  padding:12px 13px;display:flex;flex-direction:column;gap:5px;min-width:0;
-}
-.stat .k{font-size:11px;color:var(--muted);letter-spacing:.2px}
-.stat .v{font-size:21px;font-weight:800;letter-spacing:.2px}
-.stat.sm .v{font-size:17px}
-.stat.hl{background:linear-gradient(135deg,rgba(57,160,255,.16),rgba(30,199,174,.07));border-color:rgba(57,160,255,.4)}
-.stat.tow .v{font-size:26px}
-.stat.good{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.1)}
-.stat.dangerBox{border-color:rgba(255,99,99,.6)!important;background:rgba(255,99,99,.12)!important}
-.stat.goodBox{border-color:rgba(52,211,153,.55)!important;background:rgba(52,211,153,.1)!important}
-.statgrid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.statgrid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.statgrid-2 .full,.statgrid-3 .full{grid-column:1/-1}
+/* ---- buttons ---- */
+.btn{appearance:none;border:1.5px solid transparent;border-radius:var(--radius-sm);min-height:46px;padding:0 16px;font-size:14px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;background:#eef2f7;color:var(--ink);transition:transform .1s,filter .15s,background .15s}
+.btn .i{width:18px;height:18px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--primary);color:#fff}
+.btn.primary:hover{background:var(--primary-d)}
+.btn.ghost{background:#fff;border-color:var(--line);color:var(--ink)}
+.btn.ghost:hover{background:#f5f8fc}
+.btn.subtle{background:transparent;color:var(--muted)}
+.btn.block{width:100%;margin-top:10px}
+.btn.big{min-height:54px;font-size:15px}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.cta-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.iconbtn{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--bad);cursor:pointer;font-size:13px;font-weight:800}
 
-/* ---------- Seat map ---------- */
-.legend{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-.legend .pill{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);
-  padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
-.legend .key{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;font-size:10px;font-weight:800}
-.key.m{background:rgba(57,160,255,.25);color:#bfe2ff}
-.key.f{background:rgba(239,93,168,.25);color:#ffc8e6}
-.key.c{background:rgba(52,211,153,.25);color:#bdf6da}
-.key.e{background:rgba(255,255,255,.1);color:#cdd9e0}
+/* ---- hero / stats ---- */
+.hero-card{background:linear-gradient(135deg,#1f5fe6,#3aa0ff);color:#fff;border:0}
+.hero-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hero-type{font-size:18px;font-weight:800} .hero-card .muted{color:rgba(255,255,255,.85)}
+.hero-card .stat{background:rgba(255,255,255,.16);border:0;color:#fff}
+.hero-card .stat .k{color:rgba(255,255,255,.85)}
+.stat-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.stat{background:#f7f9fc;border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 12px;display:flex;flex-direction:column;gap:4px}
+.stat .k{font-size:11px;color:var(--muted)} .stat .v{font-size:18px;font-weight:800}
+.stat.hl{background:var(--hl-bg);border-color:#cfe0ff}
+.stat.good{background:var(--good-bg);border-color:#bbf7d0} .stat.good .v{color:var(--good)}
+.stat.bad{background:var(--bad-bg);border-color:#fecaca} .stat.bad .v{color:var(--bad)}
 
-#rows{display:grid;gap:10px}
-.row{
-  display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:center;
-  border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(255,255,255,.025);padding:10px;
-}
-.rt{display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center}
-.rowName b{font-size:14px}
-.rt small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
-.rt em{font-style:normal;color:var(--accent-2);font-weight:800;font-size:13px}
-.seats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0}
-.seat{border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.18);padding:7px;min-width:0}
-.sn{text-align:center;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:6px;letter-spacing:.5px}
-.choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
-.ch{
-  min-height:34px;display:grid;place-items:center;border-radius:8px;cursor:pointer;
-  font-size:12px;font-weight:800;color:#cfe6f3;
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);
-  transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .1s ease;
-}
-.ch:hover{border-color:var(--line-2)}
-.ch:active{transform:scale(.94)}
-.ch.on{background:rgba(57,160,255,.24);border-color:var(--accent);box-shadow:0 0 0 2px rgba(57,160,255,.14)}
-.ch[data-v="F"].on{background:rgba(239,93,168,.26);border-color:#ef5da8;box-shadow:0 0 0 2px rgba(239,93,168,.14)}
-.ch[data-v="C"].on{background:rgba(52,211,153,.24);border-color:var(--good);box-shadow:0 0 0 2px rgba(52,211,153,.14)}
-.ch[data-v="E"].on{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.3);box-shadow:none;color:#dce7ed}
+/* ---- chips / banners ---- */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:11.5px;font-weight:800;letter-spacing:.3px}
+.chip.green{background:var(--good-bg);color:var(--good)} .chip.amber{background:var(--amber-bg);color:var(--amber)} .chip.red{background:var(--bad-bg);color:var(--bad)}
+.hero-card .chip{background:rgba(255,255,255,.92)}
+.banner{border-radius:var(--radius-sm);padding:10px 12px;font-weight:600;font-size:13px}
+.banner.amber{background:var(--amber-bg);color:var(--amber)} .banner.red{background:var(--bad-bg);color:var(--bad)} .banner.green{background:var(--good-bg);color:var(--good)}
+.banner-card{text-align:center;border:0;color:#fff}
+.banner-card.green{background:linear-gradient(135deg,#16a34a,#22c55e)} .banner-card.amber{background:linear-gradient(135deg,#d97706,#f59e0b)} .banner-card.red{background:linear-gradient(135deg,#dc2626,#ef4444)}
+.banner-word{font-size:24px;font-weight:900;letter-spacing:.5px} .banner-sub{font-size:13px;opacity:.95;margin-top:3px}
 
-/* ---------- Scanner ---------- */
-details.drop{border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(255,255,255,.025);overflow:hidden;margin-bottom:14px}
-details.drop>summary{
-  list-style:none;cursor:pointer;padding:13px 15px;font-weight:800;font-size:13px;color:#dbeef8;
-  display:flex;align-items:center;gap:9px;
-}
-details.drop>summary::-webkit-details-marker{display:none}
-details.drop>summary svg{width:16px;height:16px;stroke:var(--accent-2);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-details.drop>summary .chev{margin-left:auto;color:var(--muted);transition:transform .2s ease}
-details.drop[open]>summary .chev{transform:rotate(180deg)}
-.drop-body{padding:0 14px 14px;display:grid;gap:13px}
-#scanProgress{min-height:16px;font-size:12px;font-weight:700;color:var(--warn);text-align:center}
-.scan-total{border:1px solid rgba(30,199,174,.4);border-radius:var(--radius-sm);
-  background:linear-gradient(135deg,rgba(30,199,174,.14),rgba(57,160,255,.07));padding:10px}
-.scan-total label{text-align:center;color:#dbf6f0}
-.scan-total input{text-align:center;font-size:24px;font-weight:800}
+/* ---- review table ---- */
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-sm)}
+.pax-table{width:100%;border-collapse:collapse;font-size:13px}
+.pax-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:8px;background:#f7f9fc;border-bottom:1px solid var(--line)}
+.pax-table td{padding:6px 8px;border-bottom:1px solid var(--line)}
+.pax-table tr:last-child td{border-bottom:0}
+.pax-table .num{text-align:right;font-weight:700}
+.pax-table tr.need td{background:#fff7ed}
+.cell{min-height:38px;padding:7px 8px;font-size:14px;border-radius:8px}
+input.cell{min-width:80px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
 
-/* ---------- CG status ---------- */
-.statusBox{border-radius:var(--radius-sm);padding:15px;border:1px solid rgba(247,183,60,.45);background:rgba(247,183,60,.1)}
-.statusBox.statusGood{border-color:rgba(52,211,153,.55);background:rgba(52,211,153,.1)}
-.statusBox.statusBad{border-color:rgba(255,99,99,.6);background:rgba(255,99,99,.12)}
-.statusTitle{font-size:19px;font-weight:900;letter-spacing:.4px;color:var(--warn)}
-.statusGood .statusTitle{color:#7ff0b6}
-.statusBad .statusTitle{color:#ff9b9b}
-.statusMsg{margin:7px 0 0;font-size:12.5px;line-height:1.5;color:#cfe0ea}
-.cg-block{display:grid;gap:10px;margin-top:12px}
-@media(min-width:560px){.cg-block{grid-template-columns:1fr 1fr}}
-.cgCard{border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(255,255,255,.03);padding:13px}
-.cgCard .cg-title{font-size:13px;font-weight:800;letter-spacing:.4px;margin-bottom:10px;color:#dbeef8}
-.cg-vals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
-.cgVal{border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.15);padding:8px 7px;text-align:center;transition:border-color .15s,background .15s}
-.cgVal span{display:block;font-size:10px;color:var(--muted);letter-spacing:.2px}
-.cgVal b{display:block;font-size:15px;font-weight:800;margin-top:4px}
-.cgVal.key{border-color:rgba(57,160,255,.4);background:rgba(57,160,255,.1)}
-.cgVal.dangerBox{border-color:rgba(255,99,99,.65)!important;background:rgba(255,99,99,.14)!important}
-.cgVal.goodBox{border-color:rgba(52,211,153,.6)!important;background:rgba(52,211,153,.12)!important}
+/* ---- CG cards / chart ---- */
+.cg-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.cgcard{border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:11px;background:#f7f9fc}
+.cgcard.green{border-color:#bbf7d0;background:var(--good-bg)} .cgcard.amber{border-color:#fde68a;background:var(--amber-bg)} .cgcard.red{border-color:#fecaca;background:var(--bad-bg)}
+.cg-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
+.cg-vals{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center}
+.cg-vals span{display:block;font-size:10px;color:var(--muted)} .cg-vals b{display:block;font-size:14px;margin-top:2px}
+.chart{width:100%;height:auto;display:block}
+.chart .safe{fill:rgba(34,197,94,.14);stroke:#16a34a;stroke-dasharray:4 3}
+.chart .axis{stroke:#9aa8b5;stroke-width:1}
+.chart line{stroke:#cbd5e0}
+.chart .ax,.chart .ay,.chart .axt{fill:#5b6b7a;font-size:9px} .chart .ax{text-anchor:middle} .chart .ay{text-anchor:end} .chart .axt{text-anchor:middle;font-weight:700}
+.chart .pt.ok{fill:#16a34a} .chart .pt.bad{fill:#dc2626} .chart .pl{fill:#102230;font-size:9px;font-weight:800}
 
-/* ---------- Constants / footer ---------- */
-.const-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-@media(min-width:560px){.const-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-.footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--muted);font-size:11.5px;padding:18px 4px 6px}
-.footer svg{width:13px;height:13px;vertical-align:-2px;margin-right:5px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+/* ---- misc ---- */
+.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;border:2px dashed #c4d0dc;border-radius:var(--radius-sm);padding:26px 16px;color:var(--muted);cursor:pointer;background:#f7f9fc;margin-bottom:10px}
+.dropzone:hover{border-color:var(--primary);color:var(--primary)}
+.dropzone .i-lg{width:40px;height:40px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.progress{min-height:16px;font-size:12px;font-weight:700;color:var(--primary);text-align:center;margin-top:6px}
+.acc{margin-top:10px;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden}
+.acc summary{padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;color:#33485a}
+.acc[open] summary{border-bottom:1px solid var(--line)}
+.acc textarea{border:0;border-radius:0;min-height:120px}
+.issues{margin:0;padding-left:18px;font-size:13px} .issues li{margin:4px 0} .issues li.red{color:var(--bad)} .issues li.amber{color:var(--amber)} .issues li.green{color:var(--good)}
+.disclaimer{margin-top:10px}
+.toast{position:fixed;left:50%;bottom:78px;transform:translateX(-50%) translateY(20px);max-width:90%;background:#102230;color:#fff;padding:11px 15px;border-radius:12px;font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:40;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media(max-width:380px){.grid-3,.cta-grid{grid-template-columns:1fr 1fr}.stat .v{font-size:16px}}
 
-/* ---------- A11y ---------- */
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
-.ch:focus-visible{outline:2px solid var(--accent)}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
-
-/* ---------- Small phones ---------- */
-@media(max-width:420px){
-  .wrap{padding:0 11px 32px}
-  .card{padding:14px}
-  .grid-3{grid-template-columns:1fr 1fr}
-  .row{grid-template-columns:1fr;gap:8px}
-  .rt{flex-direction:row;justify-content:center;gap:12px}
-  .stat .v{font-size:19px}
-  .stat.tow .v{font-size:23px}
+/* ---- print load sheet ---- */
+#printSheet{display:none}
+@media print{
+  @page{size:A4;margin:11mm}
+  body>*:not(#printSheet){display:none!important}
+  #printSheet{display:block!important;color:#000;font-family:Arial,sans-serif}
+  .ps-head{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:8px}
+  .ps-title{font-size:18px;font-weight:800} .ps-sub{font-size:9px;color:#333}
+  .ps-meta{text-align:right;font-size:9px;line-height:1.35}
+  .ps-status{border:2px solid #111;text-align:center;font-weight:800;font-size:11px;padding:6px;margin:8px 0}
+  .ps-status.green{background:#dcfce7} .ps-status.amber{background:#fef3c7} .ps-status.red{background:#fee2e2}
+  .ps-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .ps-sec{border:1px solid #444;margin-bottom:7px;break-inside:avoid}
+  .ps-sec h3{margin:0;padding:4px 6px;font-size:9px;text-transform:uppercase;background:#eef2f6;border-bottom:1px solid #444}
+  .ps-row{display:flex;justify-content:space-between;gap:8px;padding:3px 6px;font-size:9.5px;border-bottom:1px solid #ddd}
+  .ps-row:last-child{border-bottom:0}
+  .ps-note{font-size:8px;color:#333;margin-top:6px;border-top:1px solid #999;padding-top:5px}
+  .ps-sign{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px;font-size:9px}
+  .ps-line{border-top:1px solid #111;padding-top:3px}
 }
 </style>
 </head>
 <body>
 <header class="appbar">
-  <div class="brand">
-    <div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg></div>
-    <div>
-      <h1>DHC-6 CG Calculator</h1>
-      <div class="sub">Weight &amp; Balance <span id="badge" class="badge">Loading…</span></div>
-    </div>
-  </div>
-  <div class="actions">
-    <button id="resetBtn" class="btn">New Flight</button>
-    <button id="clearBtn" class="btn ghost">Clear Seats</button>
-    <button id="pdfBtn" class="btn ghost"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6M9 18h6M9 12h2"/></svg>PDF</button>
-  </div>
+  <div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg></div>
+  <div><h1>DHC-6 CG Calculator</h1><div class="tag">Scan · Review · Calculate · Export</div></div>
 </header>
-
-<div class="wrap">
-<div class="layout">
-
-  <!-- ===================== MAIN COLUMN ===================== -->
-  <div class="col-main">
-
-    <!-- Aircraft & fuel -->
-    <section class="card">
-      <div class="card-head">
-        <h2><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>Aircraft &amp; Fuel</h2>
-      </div>
-
-      <div class="fieldset">
-        <div class="grid-3">
-          <div><label for="flightNo">Flight No.</label><input id="flightNo" type="text" value="" placeholder="e.g. Q2-201" autocomplete="off"></div>
-          <div style="grid-column:span 2"><label for="route">Route</label><input id="route" type="text" value="" placeholder="e.g. MLE–DRV" autocomplete="off"></div>
-        </div>
-        <div class="subcard">
-          <h3>Saved Aircraft</h3>
-          <div>
-            <label for="presetSelect">Aircraft preset</label>
-            <select id="presetSelect"><option value="">Select aircraft preset</option></select>
-          </div>
-          <div class="grid-2">
-            <button id="loadPresetBtn" class="btn ghost">Load Preset</button>
-            <button id="deletePresetBtn" class="btn danger">Delete Preset</button>
-          </div>
-          <p class="note warn">Always verify loaded DOW / DOI against the current aircraft document.</p>
-        </div>
-
-        <div class="grid-3">
-          <div><label for="reg">Registration</label><input id="reg" type="text" value="" placeholder="8Q-XXX" autocomplete="off"></div>
-          <div><label for="dow">DOW (lb)</label><input id="dow" type="number" inputmode="decimal" value="0"></div>
-          <div><label for="doi">DOI</label><input id="doi" type="number" inputmode="decimal" step="0.01" value="0"></div>
-        </div>
-
-        <div class="subcard amber">
-          <h3>Save Aircraft</h3>
-          <button id="savePresetBtn" class="btn ghost block">Save / Update this aircraft</button>
-          <p id="presetMsg" class="note warn">Presets are stored on this device only. Update whenever DOW / DOI changes after maintenance.</p>
-        </div>
-
-        <div class="subcard accent">
-          <h3>Fuel</h3>
-          <div class="grid-2">
-            <div><label for="block">Block fuel (lb)</label><input id="block" type="number" inputmode="decimal" value="0"></div>
-            <div><label for="trip">Trip fuel (lb)</label><input id="trip" type="number" inputmode="decimal" value="0"></div>
-          </div>
-          <p class="note">Takeoff fuel = block fuel − 50 (when block fuel is entered).</p>
-        </div>
-
-        <div class="statgrid-3">
-          <div class="stat sm"><span class="k">Aircraft</span><b class="v num" id="regMini">—</b></div>
-          <div class="stat sm"><span class="k">DOW</span><b class="v num" id="dowMini">0 lb</b></div>
-          <div class="stat sm hl"><span class="k">DOI</span><b class="v num" id="doiDisplay">0.00</b></div>
-          <div class="stat sm" hidden><span class="k">Block</span><b class="v num" id="blockMini">0 lb</b></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Passengers -->
-    <section class="card">
-      <div class="card-head">
-        <h2><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Passengers</h2>
-        <div class="head-chip"><b id="paxCountTop" class="num">0 pax</b><span class="dot-sep">•</span><b id="paxWeightTop" class="num">0 lb</b></div>
-      </div>
-
-      <details class="drop">
-        <summary>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-          Manifest Scanner <span class="badge">Beta</span><span class="chev">⌄</span>
-        </summary>
-        <div class="drop-body">
-          <p class="note warn">OCR can misread. Always review detected counts and seat positions before applying.</p>
-          <div>
-            <label for="manifestFile">Take photo / upload manifest or load sheet</label>
-            <input id="manifestFile" type="file" accept="image/*">
-          </div>
-          <button id="scanBtn" class="btn ghost block">Scan Document</button>
-          <div id="scanProgress"></div>
-          <div class="grid-2">
-            <button id="applyScanBtn" class="btn ghost">Apply Detected Loading</button>
-            <button id="clearScanBtn" class="btn danger">Clear Scan</button>
-          </div>
-          <div class="grid-2">
-            <button id="suggestSeatsBtn" class="btn ghost">Suggest Best Seating</button>
-            <button id="applySuggestedSeatsBtn" class="btn ghost" disabled>Apply Suggested Seating</button>
-          </div>
-          <div class="grid-2">
-            <div><label for="scanMale">Male</label><input id="scanMale" type="number" value="0"></div>
-            <div><label for="scanFemale">Female</label><input id="scanFemale" type="number" value="0"></div>
-            <div><label for="scanChild">Child</label><input id="scanChild" type="number" value="0"></div>
-            <div><label for="scanUnknown">Unclear</label><input id="scanUnknown" type="number" value="0"></div>
-          </div>
-          <div class="scan-total"><label for="scanTotal">Total Pax</label><input id="scanTotal" type="number" value="0"></div>
-          <details class="drop">
-            <summary>Detected load-sheet values (optional)<span class="chev">⌄</span></summary>
-            <div class="drop-body">
-              <div class="grid-2">
-                <div><label for="scanLuggage">Luggage wt</label><input id="scanLuggage" type="number" value="0"></div>
-                <div><label for="scanCargo">Cargo wt</label><input id="scanCargo" type="number" value="0"></div>
-                <div><label for="scanPaxWt">Pax wt</label><input id="scanPaxWt" type="number" value="0"></div>
-                <div><label for="scanTakeoffFuel">Takeoff fuel</label><input id="scanTakeoffFuel" type="number" value="0"></div>
-                <div><label for="scanBurnFuel">Burn-off fuel</label><input id="scanBurnFuel" type="number" value="0"></div>
-                <div><label for="scanConfidence">Confidence</label><input id="scanConfidence" type="text" value="—" readonly></div>
-              </div>
-            </div>
-          </details>
-          <p id="scanStatus" class="note warn">Choose from camera or photo library, then scan. First OCR scan may need internet to load the engine.</p>
-          <details class="drop">
-            <summary>OCR text<span class="chev">⌄</span></summary>
-            <div class="drop-body"><textarea id="ocrText" placeholder="OCR result will appear here for review"></textarea></div>
-          </details>
-        </div>
-      </details>
-
-      <div class="legend">
-        <span class="pill"><span class="key m">M</span> Male 189 lb</span>
-        <span class="pill"><span class="key f">F</span> Female 150 lb</span>
-        <span class="pill"><span class="key c">C</span> Child 77 lb</span>
-        <span class="pill"><span class="key e">–</span> Empty</span>
-      </div>
-
-      <div id="rows"></div>
-
-      <div class="statgrid-3" style="margin-top:14px">
-        <div class="stat hl full"><span class="k">Total Passengers</span><b class="v num" id="paxCount">0 pax</b></div>
-        <div class="stat"><span class="k">Total Pax Weight</span><b class="v num" id="paxTotal">0 lb</b></div>
-        <div class="stat"><span class="k">Average Weight</span><b class="v num" id="avgWeight">0 lb</b></div>
-        <div class="stat sm"><span class="k">Area A / B / C</span><b class="v num" id="areas">0 / 0 / 0</b></div>
-        <div class="stat sm"><span class="k">Passenger Moment</span><b class="v num" id="paxMoment">0</b></div>
-      </div>
-    </section>
-
-    <!-- Baggage -->
-    <section class="card">
-      <div class="card-head">
-        <h2><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="7" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>Stretcher &amp; Baggage</h2>
-      </div>
-      <div class="grid-3">
-        <div><label for="stretcher">Stretcher <span class="note" style="display:inline">· arm 224.70</span></label><input id="stretcher" type="number" value="0"></div>
-        <div><label for="bagR4">Seat row 4 bag <span class="note" style="display:inline">· arm 225.00</span></label><input id="bagR4" type="number" value="0"></div>
-        <div><label for="bagR5">Seat row 5 bag <span class="note" style="display:inline">· arm 254.00</span></label><input id="bagR5" type="number" value="0"></div>
-        <div><label for="bagD">Area D bag <span class="note" style="display:inline">· arm 302.00</span></label><input id="bagD" type="number" value="0"></div>
-        <div><label for="bagAft">Aft compartment <span class="note" style="display:inline">· arm 354.00</span></label><input id="bagAft" type="number" value="0"></div>
-        <div><label for="bagShelf">Aft shelf <span class="note" style="display:inline">· arm 391.00</span></label><input id="bagShelf" type="number" value="0"></div>
-      </div>
-      <div style="margin-top:12px">
-        <label for="remarks">Remarks / special loads / dangerous goods</label>
-        <textarea id="remarks" placeholder="Notes for this flight (appears on the load sheet)"></textarea>
-      </div>
-    </section>
-
-    <details class="drop">
-      <summary>Constants &amp; Notes<span class="chev">⌄</span></summary>
-      <div class="drop-body">
-        <div class="const-grid">
-          <div class="stat sm"><span class="k">Fuel Arm</span><b class="v num">201.7</b></div>
-          <div class="stat sm"><span class="k">MTOW ref</span><b class="v num">12,500</b></div>
-          <div class="stat sm"><span class="k">CG limits</span><b class="v">25–32% MAC</b></div>
-          <div class="stat sm"><span class="k">MAC formula</span><b class="v" style="font-size:12px">(Arm − 207.74) × 1.282 + 25</b></div>
-        </div>
-        <p class="note warn">Prototype only. Verify all values against approved operator / aircraft documents before operational use.</p>
-      </div>
-    </details>
-
-  </div>
-
-  <!-- ===================== SIDE (RESULTS) COLUMN ===================== -->
-  <aside class="col-side">
-
-    <!-- Weight summary -->
-    <section class="card">
-      <div class="card-head">
-        <h2><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>Summary</h2>
-      </div>
-      <div class="stats">
-        <div class="stat tow hl"><span class="k">Takeoff Weight</span><b class="v num" id="tow">0 lb</b></div>
-        <div class="statgrid-2">
-          <div class="stat sm"><span class="k">Zero Fuel Weight</span><b class="v num" id="zfw">0</b></div>
-          <div class="stat sm"><span class="k">Payload</span><b class="v num" id="payload">0</b></div>
-          <div class="stat sm"><span class="k">Takeoff Fuel</span><b class="v num" id="tof">0</b></div>
-          <div class="stat sm"><span class="k">Landing Fuel</span><b class="v num" id="lf">0</b></div>
-          <div class="stat sm"><span class="k">Total Baggage</span><b class="v num" id="bagTotal">0</b></div>
-          <div class="stat sm"><span class="k">Landing Weight</span><b class="v num" id="lw">0</b></div>
-        </div>
-        <div class="stat hl" id="underloadBox"><span class="k">Underload / remaining to 12,500</span><b class="v num" id="remain">0</b></div>
-      </div>
-    </section>
-
-    <!-- CG results -->
-    <section class="card">
-      <div class="card-head">
-        <h2><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>CG Results</h2>
-      </div>
-      <div id="cgStatusBox" class="statusBox">
-        <div id="cgStatusTitle" class="statusTitle">CG CHECK</div>
-        <p id="warn" class="statusMsg">Enter aircraft and loading details.</p>
-      </div>
-      <div class="cg-block">
-        <div class="cgCard">
-          <div class="cg-title">Takeoff</div>
-          <div class="cg-vals">
-            <div class="cgVal"><span>Arm</span><b class="num" id="toArm">0</b></div>
-            <div class="cgVal key"><span>Index</span><b class="num" id="toIndex">0</b></div>
-            <div class="cgVal"><span>%MAC</span><b class="num" id="toMac">0%</b></div>
-          </div>
-        </div>
-        <div class="cgCard">
-          <div class="cg-title">Landing</div>
-          <div class="cg-vals">
-            <div class="cgVal"><span>Arm</span><b class="num" id="laArm">0</b></div>
-            <div class="cgVal key"><span>Index</span><b class="num" id="laIndex">0</b></div>
-            <div class="cgVal"><span>%MAC</span><b class="num" id="laMac">0%</b></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-  </aside>
-
-</div>
-
-<footer class="footer">
-  <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>Offline ready</span>
-  <span>Inputs saved locally only where applicable</span>
-  <span>v5 UI</span>
-</footer>
-</div>
+<div class="stepper" id="stepper"></div>
+<main class="view" id="view"></main>
+<nav class="nav" id="nav"></nav>
+<div id="toast" class="toast"></div>
+<div id="printSheet"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="config.js?v=1"></script>
-<script src="engine.js?v=1"></script>
-<script src="app4.js?v=28"></script>
-<script src="scanner.js?v=14"></script>
+<script src="config.js?v=2"></script>
+<script src="engine.js?v=2"></script>
+<script src="parsers.js?v=1"></script>
+<script src="app.js?v=1"></script>
 </body>
 </html>
