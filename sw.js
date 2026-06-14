@@ -1,14 +1,17 @@
-const CACHE_NAME = 'dhc6-cg-calculator-v2';
+const CACHE_NAME = 'dhc6-cg-calculator-v3';
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './app.js',
+  './app4.js',
+  './scanner.js',
   './manifest.webmanifest',
-  './icons/icon.svg'
+  './icons/icon.svg',
+  './icons/seaplane-logo.svg'
 ];
 
 self.addEventListener('install', function(event) {
   event.waitUntil(caches.open(CACHE_NAME).then(function(cache) { return cache.addAll(FILES_TO_CACHE); }));
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', function(event) {
