@@ -148,9 +148,14 @@
     return '' +
       '<section class="card">' +
         '<h2>Scan Passenger Manifest</h2>' +
-        '<p class="muted sm">Take a photo or upload the passenger manifest. OCR runs on-device. It can misread — you will review every passenger next.</p>' +
-        '<label class="dropzone" for="manifestFile"><svg viewBox="0 0 24 24" class="i-lg"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span>Tap to use camera or choose a photo</span></label>' +
-        '<input id="manifestFile" type="file" accept="image/*" capture="environment" hidden>' +
+        '<p class="muted sm">Take a photo or upload an image of the passenger manifest. OCR runs on-device and can misread — you review every passenger next.</p>' +
+        '<div class="dropzone"><svg viewBox="0 0 24 24" class="i-lg"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span id="fileName">No file selected</span></div>' +
+        '<div class="grid-2">' +
+          '<button class="btn ghost" data-action="takePhoto"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>Take Photo</button>' +
+          '<button class="btn ghost" data-action="chooseFile"><svg viewBox="0 0 24 24" class="i"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>Upload Image</button>' +
+        '</div>' +
+        '<input id="camInput" type="file" accept="image/*" capture="environment" hidden>' +
+        '<input id="fileInput" type="file" accept="image/*" hidden>' +
         '<button class="btn primary block" data-action="runOcr">Scan Document</button>' +
         '<div id="scanProgress" class="progress"></div>' +
         '<p id="scanStatus" class="muted sm">First scan may need internet to load the OCR engine.</p>' +
@@ -161,14 +166,17 @@
 
   /* ---------- step: Review & Correction ---------- */
   function seatPaxIndex(label) { for (var i = 0; i < state.pax.length; i++) if (state.pax[i].seat === label) return i; return -1; }
-  function renderSeatMap() {
+  function renderSeatMap(readonly) {
     var html = '';
     for (var r = 1; r <= 5; r++) {
       var tiles = ['A', 'B', 'C'].map(function (col) {
         var label = r + col, idx = seatPaxIndex(label), p = idx >= 0 ? state.pax[idx] : null;
         var cls = p ? (p.cat === '?' ? 'need' : 'cat-' + p.cat) : 'empty';
-        var glyph = p ? (p.cat === '?' ? '?' : p.cat) : '+';
-        return '<button class="seat-tile ' + cls + '" data-action="cycleSeat" data-seat="' + label + '" aria-label="Seat ' + label + '"><span class="seat-id">' + label + '</span><span class="seat-cat">' + glyph + '</span></button>';
+        var glyph = p ? (p.cat === '?' ? '?' : p.cat) : (readonly ? '·' : '+');
+        var inner = '<span class="seat-id">' + label + '</span><span class="seat-cat">' + glyph + '</span>';
+        return readonly
+          ? '<div class="seat-tile ro ' + cls + '">' + inner + '</div>'
+          : '<button class="seat-tile ' + cls + '" data-action="cycleSeat" data-seat="' + label + '" aria-label="Seat ' + label + '">' + inner + '</button>';
       }).join('');
       html += '<div class="seat-row"><span class="rl">' + r + '</span><div class="seats3">' + tiles + '</div></div>';
     }
@@ -256,6 +264,7 @@
         '<div class="banner-sub">' + (c.ready ? ('CG ' + f(m.to.mac, 1) + '% MAC · TOW ' + f(m.tow) + ' lb') : 'Complete the required fields to finalize') + '</div>' +
       '</section>' +
       '<section class="card"><h2>CG Envelope</h2>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">Safe band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC up to MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
+      '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">I Infant</span></div></section>' +
       '<section class="card">' +
         '<h2>Weight &amp; Balance</h2>' +
         '<div class="stat-grid-3">' +
@@ -323,7 +332,7 @@
     $('view').innerHTML = RENDERERS[state.step]();
     $('nav').innerHTML = renderNav();
     $('view').scrollTop = 0; window.scrollTo(0, 0);
-    if (state.step === 1) wireFileInput();
+    if (state.step === 1) wireScanInputs();
     save();
   }
   function go(i) { state.step = Math.max(0, Math.min(STEPS.length - 1, i)); render(); }
@@ -355,16 +364,25 @@
   function delPax(i) { state.pax.splice(i, 1); render(); }
 
   /* ---------- OCR ---------- */
-  function wireFileInput() {
-    var input = $('manifestFile'), dz = document.querySelector('.dropzone');
-    if (input) input.onchange = function () { if (input.files && input.files[0] && dz) dz.querySelector('span').textContent = input.files[0].name; };
+  var selectedFile = null;
+  function wireScanInputs() {
+    ['camInput', 'fileInput'].forEach(function (id) {
+      var inp = $(id);
+      if (inp) inp.onchange = function () {
+        if (inp.files && inp.files[0]) {
+          selectedFile = inp.files[0];
+          var fn = $('fileName'); if (fn) fn.textContent = selectedFile.name;
+          setScan('Ready to scan: ' + selectedFile.name);
+        }
+      };
+    });
+    if (selectedFile) { var fn = $('fileName'); if (fn) fn.textContent = selectedFile.name; }
   }
   function runOcr() {
-    var input = $('manifestFile');
-    if (!input || !input.files || !input.files[0]) { setScan('Choose or take a manifest photo first.'); return; }
+    if (!selectedFile) { setScan('Take a photo or upload an image first.'); return; }
     if (!window.Tesseract) { setScan('OCR engine not loaded — internet may be needed the first time.'); return; }
     setScan('Scanning…'); setProgress('starting');
-    window.Tesseract.recognize(input.files[0], 'eng', { logger: function (mm) { if (mm.status) setProgress(mm.status + (mm.progress ? ' ' + Math.round(mm.progress * 100) + '%' : '')); } })
+    window.Tesseract.recognize(selectedFile, 'eng', { logger: function (mm) { if (mm.status) setProgress(mm.status + (mm.progress ? ' ' + Math.round(mm.progress * 100) + '%' : '')); } })
       .then(function (res) {
         var text = (res && res.data && res.data.text) || ''; state.ocrText = text;
         var c = PARSE.parseManifestCounts(text);
@@ -449,6 +467,8 @@
       case 'goto': go(+i); break;
       case 'goScan': go(1); break;
       case 'goReview': go(2); break;
+      case 'takePhoto': var ci = $('camInput'); if (ci) ci.click(); break;
+      case 'chooseFile': var fi = $('fileInput'); if (fi) fi.click(); break;
       case 'runOcr': runOcr(); break;
       case 'cycleSeat': cycleSeat(t.getAttribute('data-seat')); break;
       case 'clearPax': clearPax(); break;

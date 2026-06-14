@@ -54,8 +54,16 @@ test('entering aircraft data updates state and stats', () => {
   if (!/9,142/.test($('view').innerHTML) && !/9142/.test($('view').innerHTML)) throw new Error('DOW not reflected');
 });
 
-test('manual entry reaches the review step with a tappable seat map', () => {
-  click(actionBtn('goReview'));
+test('scan step offers both camera and upload, and runs safely with no file', () => {
+  click(actionBtn('goScan'));
+  if (!actionBtn('takePhoto') || !actionBtn('chooseFile')) throw new Error('missing camera/upload buttons');
+  if (!$('camInput') || !$('fileInput')) throw new Error('missing camera + file inputs');
+  if ($('fileInput').hasAttribute('capture')) throw new Error('upload input must not force camera');
+  click(actionBtn('runOcr'));   // no file selected -> message only, no crash
+});
+
+test('review step has a tappable seat map', () => {
+  click(actionBtn('goReview'));   // scan -> review
   if (!/Review/.test($('view').innerHTML)) throw new Error('not on review step');
   if (!q('[data-action="cycleSeat"]')) throw new Error('no seat map');
 });
@@ -91,6 +99,7 @@ test('results step shows a status banner and CG envelope chart', () => {
   if (!/(WITHIN LIMITS|OUT OF LIMITS|CAUTION|REVIEW NEEDED)/.test(html)) throw new Error('no status banner');
   if (!q('svg.chart')) throw new Error('no CG envelope chart');
   if (!/% MAC/.test(html)) throw new Error('no %MAC output');
+  if (!q('.seat-tile.ro')) throw new Error('no read-only cabin layout on results');
 });
 
 test('export builds a load sheet without error', () => {
