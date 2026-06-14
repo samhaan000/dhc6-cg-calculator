@@ -36,8 +36,10 @@
         F = cfg.fuel, IX = cfg.index, MC = cfg.mac;
 
     var seats = input.seats || [];
+    // A seat cell is either a category code (standard weight from config) or a
+    // number (an actual/override weight in lb). Same moment formula either way.
     var pr = seats.map(function (r) {
-      return r.reduce(function (a, k) { return a + (W[k] || 0); }, 0);
+      return r.reduce(function (a, k) { return a + (typeof k === 'number' ? k : (W[k] || 0)); }, 0);
     });
 
     var pax = pr.reduce(function (a, b) { return a + b; }, 0);

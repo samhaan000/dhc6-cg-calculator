@@ -52,6 +52,19 @@ test('weight relationships are internally consistent', () => {
   [m.to.arm, m.to.index, m.to.mac, m.la.arm, m.la.index, m.la.mac].forEach(v => assert.ok(isFinite(v)));
 });
 
+// --- Actual/override weights and infant category ---
+test('numeric seat weights (actual/override) feed the moment directly', () => {
+  const seats = empty(); seats[0][0] = 200; seats[2][1] = 'M';
+  const m = computeMetrics({ seats, dow: 9142, doi: 13.8 }, cfg);
+  assert.strictEqual(m.pax, 200 + 189);
+  assert.strictEqual(m.pm, 200 * cfg.seatArms[0] + 189 * cfg.seatArms[2]);
+});
+test('infant category uses its configured weight', () => {
+  const seats = empty(); seats[0][0] = 'I';
+  const m = computeMetrics({ seats, dow: 9142, doi: 13.8 }, cfg);
+  assert.strictEqual(m.pax, cfg.paxWeights.I);
+});
+
 // --- No fuel: zero DOW edge case must not divide by zero ---
 test('zero DOW yields zero arms, no NaN', () => {
   const m = computeMetrics({ seats: empty(), dow: 0, doi: 0 }, cfg);

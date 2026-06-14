@@ -29,9 +29,10 @@
       revised: '2026-06-14'
     },
 
-    // Standard passenger weights by category (lb).
-    // E = empty seat. Add categories here if the operator uses more.
-    paxWeights: { E: 0, M: 189, F: 150, C: 77 },
+    // Standard passenger weights by category (lb). These are defaults; the
+    // review screen lets the user override any passenger's actual weight.
+    // E = empty seat. I = infant (verify operator policy — lap vs seat).
+    paxWeights: { E: 0, M: 189, F: 150, C: 77, I: 30 },
 
     // Seat-row reference arms (in), rows 1..5 (Front .. Rear).
     seatArms: [135, 165, 195, 225, 254],

@@ -1,0 +1,106 @@
+/* Headless smoke test: loads the real page in jsdom and drives the wizard,
+ * failing on any uncaught runtime error. Run: node tests/smoke.test.js
+ * Skips gracefully if jsdom isn't installed. */
+let JSDOM;
+try { JSDOM = require('jsdom').JSDOM; }
+catch (e) { console.log('smoke test skipped (jsdom not installed)'); process.exit(0); }
+
+const fs = require('fs');
+const path = require('path');
+const root = path.join(__dirname, '..');
+const read = f => fs.readFileSync(path.join(root, f), 'utf8');
+
+let passed = 0;
+function test(name, fn) {
+  try { fn(); passed++; console.log('  ok  - ' + name); }
+  catch (e) { console.error('  FAIL- ' + name + '\n        ' + (e && e.stack || e)); process.exitCode = 1; }
+}
+
+const dom = new JSDOM(read('index.html'), { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://localhost/' });
+const { window } = dom;
+const document = window.document;
+window.scrollTo = () => {};
+window.print = () => {};
+window.confirm = () => true;
+
+const errors = [];
+window.addEventListener('error', e => errors.push(e.error || e.message));
+
+// run the app's scripts in page order, in the window realm
+['config.js', 'engine.js', 'parsers.js', 'app.js'].forEach(f => window.eval(read(f)));
+// jsdom outside-only keeps readyState 'loading', so fire the ready event the app waits on
+window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
+
+const $ = id => document.getElementById(id);
+const q = sel => document.querySelector(sel);
+const qa = sel => Array.prototype.slice.call(document.querySelectorAll(sel));
+function setVal(el, v) { el.value = v; el.dispatchEvent(new window.Event('input', { bubbles: true })); }
+function click(el) { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }
+function actionBtn(a) { return q('[data-action="' + a + '"]'); }
+
+console.log('Wizard smoke test (jsdom)');
+
+test('app boots and renders the dashboard', () => {
+  if (!$('view')) throw new Error('#view missing');
+  if (!/Aircraft/.test($('view').innerHTML)) throw new Error('dashboard not rendered');
+  if (!$('stepper').innerHTML) throw new Error('stepper empty');
+  if (!$('nav').innerHTML) throw new Error('nav empty');
+});
+
+test('entering aircraft data updates state and stats', () => {
+  setVal(q('[data-bind="aircraft.dow"]'), '9142');
+  setVal(q('[data-bind="aircraft.doi"]'), '13.8');
+  setVal(q('[data-bind="aircraft.reg"]'), '8Q-ABC');
+  if (!/9,142/.test($('view').innerHTML) && !/9142/.test($('view').innerHTML)) throw new Error('DOW not reflected');
+});
+
+test('manual entry adds a passenger and reaches the review step', () => {
+  click(actionBtn('goReview'));
+  if (!/Review/.test($('view').innerHTML)) throw new Error('not on review step');
+  if (!q('[data-bind="pax.0.cat"]')) throw new Error('no passenger row');
+});
+
+test('assigning category + seat re-renders and computes weight', () => {
+  setVal(q('[data-bind="pax.0.cat"]'), 'M');     // data-rerender
+  setVal(q('[data-bind="pax.0.seat"]'), '1A');
+  click(actionBtn('addPax'));
+  setVal(q('[data-bind="pax.1.cat"]'), 'F');
+  setVal(q('[data-bind="pax.1.seat"]'), '2B');
+  if (!/189/.test($('view').innerHTML)) throw new Error('male weight not shown');
+});
+
+test('quick-add and per-passenger weight override work', () => {
+  click(actionBtn('quickAdd'));                 // + Male
+  const wt = q('[data-bind="pax.0.weight"]');
+  if (!wt) throw new Error('no weight input');
+  setVal(wt, '205');
+  if (wt.value !== '205') throw new Error('weight override not set');
+});
+
+test('cargo & fuel step accepts fuel/baggage', () => {
+  click(actionBtn('next'));   // review -> cargo
+  setVal(q('[data-bind="fuel.block"]'), '2000');
+  setVal(q('[data-bind="fuel.trip"]'), '400');
+  setVal(q('[data-bind="cargo.bagD"]'), '150');
+  if (!q('.live')) throw new Error('running totals not shown');
+});
+
+test('results step shows a status banner and CG envelope chart', () => {
+  click(actionBtn('next'));   // cargo -> results
+  const html = $('view').innerHTML;
+  if (!/(WITHIN LIMITS|OUT OF LIMITS|CAUTION|REVIEW NEEDED)/.test(html)) throw new Error('no status banner');
+  if (!q('svg.chart')) throw new Error('no CG envelope chart');
+  if (!/% MAC/.test(html)) throw new Error('no %MAC output');
+});
+
+test('export builds a load sheet without error', () => {
+  const btn = actionBtn('exportPdf');
+  if (btn && !btn.disabled) click(btn);
+  // if disabled, that is valid (data incomplete) — just ensure no crash
+});
+
+test('no uncaught runtime errors during the flow', () => {
+  if (errors.length) throw new Error(errors.length + ' error(s): ' + errors.map(String).join(' | '));
+});
+
+console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : ''));

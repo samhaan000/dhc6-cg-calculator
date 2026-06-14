@@ -10,7 +10,8 @@
 
   var STEPS = ['Dashboard', 'Scan', 'Review', 'Cargo & Fuel', 'Results'];
   var SEATS = (function () { var a = [], r, c, C = ['A', 'B', 'C']; for (r = 1; r <= 5; r++) for (c = 0; c < 3; c++) a.push(r + C[c]); return a; })();
-  var CAT_LABEL = { M: 'Male', F: 'Female', C: 'Child', '?': 'Needs review' };
+  var CAT_LABEL = { M: 'Male', F: 'Female', C: 'Child', I: 'Infant', '?': 'Needs review' };
+  function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I'; }
   var STATE_KEY = 'dhc6_flight_v2', PRESET_KEY = 'dhc6_aircraft_presets_v1';
 
   var state = {
@@ -30,7 +31,7 @@
   function f(x, d) { return Number(x || 0).toLocaleString(undefined, { maximumFractionDigits: d || 0, minimumFractionDigits: d || 0 }); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]; }); }
   function parseSeat(s) { var m = /^([1-5])([ABC])$/i.exec(String(s || '').trim()); return m ? { row: +m[1] - 1, col: 'ABC'.indexOf(m[2].toUpperCase()) } : null; }
-  function paxWeight(p) { return CFG.paxWeights[p.cat] || 0; }
+  function paxWeight(p) { var w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return CFG.paxWeights[p.cat] || 0; }
   function nextFreeSeat() { var used = {}; state.pax.forEach(function (p) { used[p.seat] = 1; }); for (var i = 0; i < SEATS.length; i++) if (!used[SEATS[i]]) return SEATS[i]; return ''; }
 
   /* ---------- persistence ---------- */
@@ -42,7 +43,7 @@
   /* ---------- calculation glue ---------- */
   function buildGrid() {
     var g = [['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E']];
-    state.pax.forEach(function (p) { var s = parseSeat(p.seat); if (s && (p.cat === 'M' || p.cat === 'F' || p.cat === 'C')) g[s.row][s.col] = p.cat; });
+    state.pax.forEach(function (p) { var s = parseSeat(p.seat); if (s && isCat(p.cat)) g[s.row][s.col] = paxWeight(p); });
     return g;
   }
   function engineInput() {
@@ -60,7 +61,7 @@
 
     var seatUse = {}, dup = false;
     var needReview = state.pax.filter(function (p) {
-      var ok = (p.cat === 'M' || p.cat === 'F' || p.cat === 'C') && parseSeat(p.seat);
+      var ok = isCat(p.cat) && parseSeat(p.seat);
       if (p.seat) { if (seatUse[p.seat]) dup = true; seatUse[p.seat] = 1; }
       return !ok;
     });
@@ -96,21 +97,23 @@
   function statCard(k, v, cls) { return '<div class="stat ' + (cls || '') + '"><span class="k">' + k + '</span><b class="v num">' + v + '</b></div>'; }
 
   /* ---------- step: Dashboard ---------- */
-  function renderDashboard() {
+  function renderHero() {
     var c = compute(), s = statusWord(c.level, c.ready);
+    return '<section class="card hero-card" id="dashHero">' +
+      '<div class="hero-row"><div><div class="hero-type">DHC-6 Twin Otter</div><div class="muted sm">Weight &amp; Balance</div></div>' +
+      '<span class="chip ' + s.cls + '">' + s.word + '</span></div>' +
+      '<div class="stat-grid-3" style="margin-top:14px">' +
+        statCard('DOW', f(num(state.aircraft.dow)) + ' lb', 'hl') +
+        statCard('DOI', f(num(state.aircraft.doi), 2), 'hl') +
+        statCard('Pax', c.paxCount, '') +
+      '</div></section>';
+  }
+  function renderDashboard() {
     var opts = '<option value="">Saved aircraft…</option>' + Object.keys(presets()).sort().map(function (r) {
       var p = presets()[r]; return '<option value="' + esc(r) + '">' + esc(r) + ' — DOW ' + p.dow + ' / DOI ' + p.doi + '</option>';
     }).join('');
     return '' +
-      '<section class="card hero-card">' +
-        '<div class="hero-row"><div><div class="hero-type">DHC-6 Twin Otter</div><div class="muted sm">Weight &amp; Balance</div></div>' +
-        '<span class="chip ' + s.cls + '">' + s.word + '</span></div>' +
-        '<div class="stat-grid-3" style="margin-top:14px">' +
-          statCard('DOW', f(num(state.aircraft.dow)) + ' lb', 'hl') +
-          statCard('DOI', f(num(state.aircraft.doi), 2), 'hl') +
-          statCard('Pax', c.paxCount, '') +
-        '</div>' +
-      '</section>' +
+      renderHero() +
 
       '<section class="card">' +
         '<h2>Aircraft</h2>' +
@@ -161,27 +164,29 @@
   function renderReview() {
     var c = compute();
     var rows = state.pax.map(function (p, i) {
-      var need = !(p.cat === 'M' || p.cat === 'F' || p.cat === 'C') || !parseSeat(p.seat);
-      var catSel = ['M', 'F', 'C', '?'].map(function (k) { return '<option value="' + k + '"' + (p.cat === k ? ' selected' : '') + '>' + (k === '?' ? '?' : k) + '</option>'; }).join('');
+      var need = !isCat(p.cat) || !parseSeat(p.seat);
+      var catSel = ['M', 'F', 'C', 'I', '?'].map(function (k) { return '<option value="' + k + '"' + (p.cat === k ? ' selected' : '') + '>' + k + '</option>'; }).join('');
       var seatSel = '<option value="">—</option>' + SEATS.map(function (s) { return '<option value="' + s + '"' + (p.seat === s ? ' selected' : '') + '>' + s + '</option>'; }).join('');
+      var ph = p.cat === '?' ? 'wt' : f(CFG.paxWeights[p.cat] || 0);
       return '<tr class="' + (need ? 'need' : '') + '" data-i="' + i + '">' +
         '<td><input class="cell" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="Name"></td>' +
         '<td><select class="cell" data-rerender data-bind="pax.' + i + '.cat">' + catSel + '</select></td>' +
         '<td><select class="cell" data-rerender data-bind="pax.' + i + '.seat">' + seatSel + '</select></td>' +
-        '<td class="num">' + (p.cat === '?' ? '—' : f(paxWeight(p))) + '</td>' +
+        '<td><input class="cell wt num" type="number" inputmode="decimal" data-bind="pax.' + i + '.weight" value="' + (p.weight > 0 ? p.weight : '') + '" placeholder="' + ph + '"></td>' +
         '<td><button class="iconbtn" data-action="delPax" data-i="' + i + '" aria-label="Remove">✕</button></td>' +
       '</tr>';
     }).join('');
     return '' +
       '<section class="card">' +
-        '<div class="card-head"><h2>Review &amp; Correction</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> · <b>' + f(c.paxWt) + ' lb</b></div></div>' +
+        '<div class="card-head"><h2>Review &amp; Correction</h2><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b> · <b>' + f(c.paxWt) + ' lb</b></div></div>' +
         (c.needReview.length ? '<div class="banner amber sm">' + c.needReview.length + ' passenger(s) need a category and seat before calculating.</div>' : '') +
         '<div class="table-wrap"><table class="pax-table"><thead><tr><th>Name</th><th>Cat</th><th>Seat</th><th class="num">Wt</th><th></th></tr></thead><tbody>' +
           (rows || '<tr><td colspan="5" class="muted" style="text-align:center;padding:16px">No passengers yet.</td></tr>') +
         '</tbody></table></div>' +
-        '<button class="btn ghost block" data-action="addPax">+ Add Passenger</button>' +
+        '<div class="quickadd"><button class="btn ghost" data-action="quickAdd" data-cat="M">+ Male</button><button class="btn ghost" data-action="quickAdd" data-cat="F">+ Female</button><button class="btn ghost" data-action="quickAdd" data-cat="C">+ Child</button></div>' +
+        '<button class="btn ghost block" data-action="addPax">+ Add (needs review)</button>' +
       '</section>' +
-      '<div class="legend sm muted">Standard weights — Male ' + CFG.paxWeights.M + ' · Female ' + CFG.paxWeights.F + ' · Child ' + CFG.paxWeights.C + ' lb</div>';
+      '<div class="legend sm muted">Standard — M ' + CFG.paxWeights.M + ' · F ' + CFG.paxWeights.F + ' · C ' + CFG.paxWeights.C + ' · I ' + CFG.paxWeights.I + ' lb. Leave Wt blank to use the standard; type an actual weight to override.</div>';
   }
 
   /* ---------- step: Cargo & Fuel ---------- */
@@ -322,7 +327,7 @@
   function doDeletePreset(sel) { var r = sel || (state.aircraft.reg || '').trim().toUpperCase(); var p = presets(); if (!p[r]) return toast('Select a saved aircraft to delete.'); delete p[r]; savePresets(p); toast('Deleted ' + r + '.'); render(); }
 
   /* ---------- passengers ---------- */
-  function addPax() { state.pax.push({ id: uid(), name: 'Pax ' + (state.pax.length + 1), cat: '?', seat: nextFreeSeat() }); render(); }
+  function addPax(cat) { if (state.pax.length >= 15) { toast('All 15 seats are taken.'); return; } state.pax.push({ id: uid(), name: 'Pax ' + (state.pax.length + 1), cat: cat || '?', seat: nextFreeSeat() }); render(); }
   function delPax(i) { state.pax.splice(i, 1); render(); }
 
   /* ---------- OCR ---------- */
@@ -407,7 +412,9 @@
     setBind(bind, coerce(el, el.value));
     if (el.hasAttribute('data-rerender')) { render(); return; }
     save();
-    if (state.step === 3) { var live = document.querySelector('.live'); if (live) live.outerHTML = liveSummary(); }
+    if (state.step === 0) { var hero = document.getElementById('dashHero'); if (hero) hero.outerHTML = renderHero(); }
+    else if (state.step === 2) { var chip = document.getElementById('reviewChip'); if (chip) { var cc = compute(); chip.innerHTML = '<b>' + cc.paxCount + ' pax</b> · <b>' + f(cc.paxWt) + ' lb</b>'; } }
+    else if (state.step === 3) { var live = document.querySelector('.live'); if (live) live.outerHTML = liveSummary(); }
   }
   function onClick(e) {
     var t = e.target.closest('[data-action]'); if (!t) return;
@@ -420,6 +427,7 @@
       case 'goReview': if (!state.pax.length) addPax(); go(2); break;
       case 'runOcr': runOcr(); break;
       case 'addPax': addPax(); break;
+      case 'quickAdd': addPax(t.getAttribute('data-cat')); break;
       case 'delPax': delPax(+i); break;
       case 'savePreset': doSavePreset(); break;
       case 'deletePreset': doDeletePreset(document.querySelector('[data-action="loadPreset"]').value); break;
