@@ -1,7 +1,9 @@
-const CACHE_NAME = 'dhc6-cg-calculator-v3';
+const CACHE_NAME = 'dhc6-cg-calculator-v4';
 const FILES_TO_CACHE = [
   './',
   './index.html',
+  './config.js',
+  './engine.js',
   './app4.js',
   './scanner.js',
   './manifest.webmanifest',
