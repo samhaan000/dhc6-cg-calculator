@@ -54,25 +54,25 @@ test('entering aircraft data updates state and stats', () => {
   if (!/9,142/.test($('view').innerHTML) && !/9142/.test($('view').innerHTML)) throw new Error('DOW not reflected');
 });
 
-test('manual entry adds a passenger and reaches the review step', () => {
+test('manual entry reaches the review step with a tappable seat map', () => {
   click(actionBtn('goReview'));
   if (!/Review/.test($('view').innerHTML)) throw new Error('not on review step');
-  if (!q('[data-bind="pax.0.cat"]')) throw new Error('no passenger row');
+  if (!q('[data-action="cycleSeat"]')) throw new Error('no seat map');
 });
 
-test('assigning category + seat re-renders and computes weight', () => {
-  setVal(q('[data-bind="pax.0.cat"]'), 'M');     // data-rerender
-  setVal(q('[data-bind="pax.0.seat"]'), '1A');
-  click(actionBtn('addPax'));
-  setVal(q('[data-bind="pax.1.cat"]'), 'F');
-  setVal(q('[data-bind="pax.1.seat"]'), '2B');
-  if (!/189/.test($('view').innerHTML)) throw new Error('male weight not shown');
+test('tapping a seat adds a passenger and cycles its category', () => {
+  const seat = s => q('[data-action="cycleSeat"][data-seat="' + s + '"]');
+  click(seat('1A'));   // empty -> Male
+  if (!q('.paxrow')) throw new Error('passenger not created by tap');
+  if (!/\bcat-M\b/.test($('view').innerHTML)) throw new Error('not Male after first tap');
+  click(seat('1A'));   // Male -> Female
+  if (!/\bcat-F\b/.test($('view').innerHTML)) throw new Error('did not cycle to Female');
+  click(seat('2B'));   // add a second passenger
+  if (!q('[data-bind="pax.0.weight"]')) throw new Error('no weight input in list');
 });
 
-test('quick-add and per-passenger weight override work', () => {
-  click(actionBtn('quickAdd'));                 // + Male
+test('per-passenger weight override works', () => {
   const wt = q('[data-bind="pax.0.weight"]');
-  if (!wt) throw new Error('no weight input');
   setVal(wt, '205');
   if (wt.value !== '205') throw new Error('weight override not set');
 });
