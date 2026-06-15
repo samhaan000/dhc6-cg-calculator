@@ -61,4 +61,18 @@ test('OCR parser flags unclassified passengers as unknown, not guessed', () => {
   assert.strictEqual(c.male + c.female + c.child + c.unknown >= c.male, true);
 });
 
+test('fallback: title scan detects categories when there is no summary block', () => {
+  const c = parsers.parseManifestCounts('JOHN SMITH MR\nJANE DOE MRS\nBABY DOE MSTR');
+  assert.strictEqual(c.male, 1);
+  assert.strictEqual(c.female, 1);
+  assert.strictEqual(c.child, 1);
+  assert.strictEqual(c.total, 3);
+});
+
+test('fallback: row counter detects a count from a numbered name list', () => {
+  const c = parsers.parseManifestCounts('1. John Smith\n2. Jane Doe\n3. Bob Lee\n4. Amy Tan');
+  assert.strictEqual(c.total, 4);
+  assert.strictEqual(c.unknown, 4);   // counted but uncategorised -> needs review
+});
+
 console.log(`\n${passed} passed` + (process.exitCode ? ', with failures' : ''));
