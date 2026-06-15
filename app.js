@@ -378,17 +378,42 @@
     });
     if (selectedFile) { var fn = $('fileName'); if (fn) fn.textContent = selectedFile.name; }
   }
+  function preprocessImage(file) {
+    return new Promise(function (resolve) {
+      try {
+        var img = new Image();
+        img.onload = function () {
+          // upscale small photos, cap large ones; OCR likes ~1500px wide
+          var scale = img.width < 1000 ? Math.min(2.5, 1500 / img.width) : Math.min(1, 2200 / img.width);
+          if (!isFinite(scale) || scale <= 0) scale = 1;
+          var w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+          var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+          var ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+          var d, a; try { d = ctx.getImageData(0, 0, w, h); a = d.data; } catch (e) { resolve(cv); return; }
+          var i, g, min = 255, max = 0;
+          for (i = 0; i < a.length; i += 4) { g = (a[i] * 0.299 + a[i + 1] * 0.587 + a[i + 2] * 0.114) | 0; a[i] = a[i + 1] = a[i + 2] = g; if (g < min) min = g; if (g > max) max = g; }
+          var range = (max - min) || 1;                       // contrast stretch to full range
+          for (i = 0; i < a.length; i += 4) { g = Math.round((a[i] - min) * 255 / range); g = g < 0 ? 0 : g > 255 ? 255 : g; a[i] = a[i + 1] = a[i + 2] = g; }
+          ctx.putImageData(d, 0, 0);
+          resolve(cv);
+        };
+        img.onerror = function () { resolve(file); };
+        img.src = URL.createObjectURL(file);
+      } catch (e) { resolve(file); }
+    });
+  }
   function runOcr() {
     if (!selectedFile) { setScan('Take a photo or upload an image first.'); return; }
     if (!window.Tesseract) { setScan('OCR engine not loaded — internet may be needed the first time.'); return; }
-    setScan('Scanning…'); setProgress('starting');
-    window.Tesseract.recognize(selectedFile, 'eng', { logger: function (mm) { if (mm.status) setProgress(mm.status + (mm.progress ? ' ' + Math.round(mm.progress * 100) + '%' : '')); } })
-      .then(function (res) {
-        var text = (res && res.data && res.data.text) || ''; state.ocrText = text;
-        var c = PARSE.parseManifestCounts(text);
-        applyScan(c); setProgress('done');
-      })
-      .catch(function (e) { console.error(e); setProgress('failed'); setScan('OCR failed. Try a clearer, straight photo or enter passengers manually.'); });
+    setScan('Enhancing image…'); setProgress('preprocessing');
+    preprocessImage(selectedFile).then(function (src) {
+      setScan('Scanning…');
+      return window.Tesseract.recognize(src, 'eng', { logger: function (mm) { if (mm.status) setProgress(mm.status + (mm.progress ? ' ' + Math.round(mm.progress * 100) + '%' : '')); } });
+    }).then(function (res) {
+      var text = (res && res.data && res.data.text) || ''; state.ocrText = text;
+      var c = PARSE.parseManifestCounts(text);
+      applyScan(c); setProgress('done');
+    }).catch(function (e) { console.error(e); setProgress('failed'); setScan('OCR failed. Try a clearer, straight, well-lit photo, or enter passengers manually.'); });
   }
   function applyScan(c) {
     var list = [], i;
