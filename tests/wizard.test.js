@@ -75,4 +75,38 @@ test('fallback: row counter detects a count from a numbered name list', () => {
   assert.strictEqual(c.unknown, 4);   // counted but uncategorised -> needs review
 });
 
+test('female summary never double-counts as male', () => {
+  const c = parsers.parseManifestCounts('FEMALE 3');
+  assert.strictEqual(c.male, 0);
+  assert.strictEqual(c.female, 3);
+  assert.strictEqual(c.total, 3);
+});
+
+test('female-first summaries retain both correct category totals', () => {
+  const c = parsers.parseManifestCounts('FEMALE BOARDED 3\nMALE CHECKED 5\nTOTAL PAX 8');
+  assert.strictEqual(c.male, 5);
+  assert.strictEqual(c.female, 3);
+  assert.strictEqual(c.unknown, 0);
+});
+
+test('a child gender-table row is counted once, as a child', () => {
+  const c = parsers.parseManifestCounts('1 JOHN DOE M MLE ABC CHD');
+  assert.strictEqual(c.male, 0);
+  assert.strictEqual(c.child, 1);
+  assert.strictEqual(c.total, 1);
+});
+
+test('inconsistent category and reported totals are surfaced', () => {
+  const c = parsers.parseManifestCounts('TOTAL PAX 4\nMALE 5');
+  assert.strictEqual(c.consistent, false);
+  assert.ok(c.issues.some(i => /exceed the reported total/.test(i)));
+});
+
+test('infants remain a separate category', () => {
+  const c = parsers.parseManifestCounts('TOTAL PAX 2\nMALE 1\nINFANT 1');
+  assert.strictEqual(c.male, 1);
+  assert.strictEqual(c.infant, 1);
+  assert.strictEqual(c.total, 2);
+});
+
 console.log(`\n${passed} passed` + (process.exitCode ? ', with failures' : ''));

@@ -1,12 +1,14 @@
 {
   "name": "dhc6-cg-calculator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Offline-first PWA for DHC-6 Twin Otter weight & balance.",
   "scripts": {
-    "test": "node tests/engine.test.js && node tests/wizard.test.js && node tests/smoke.test.js"
+    "test": "node tests/engine.test.js && node tests/wizard.test.js && node tests/smoke.test.js && node tests/assets.test.js"
   },
   "devDependencies": {
-    "jsdom": "^29.1.1"
+    "jsdom": "29.1.1",
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "7.0.0"
   }
 }

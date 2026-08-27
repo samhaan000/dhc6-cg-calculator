@@ -12,7 +12,7 @@
   var SEATS = (function () { var a = [], r, c, C = ['A', 'B', 'C']; for (r = 1; r <= 5; r++) for (c = 0; c < 3; c++) a.push(r + C[c]); return a; })();
   var CAT_LABEL = { M: 'Male', F: 'Female', C: 'Child', I: 'Infant', '?': 'Needs review' };
   function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I'; }
-  var STATE_KEY = 'dhc6_flight_v2', PRESET_KEY = 'dhc6_aircraft_presets_v1';
+  var STATE_KEY = 'dhc6_flight_v3', LEGACY_STATE_KEY = 'dhc6_flight_v2', PRESET_KEY = 'dhc6_aircraft_presets_v1';
 
   var state = {
     step: 0,
@@ -34,8 +34,28 @@
   function paxWeight(p) { var w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return CFG.paxWeights[p.cat] || 0; }
 
   /* ---------- persistence ---------- */
-  function save() { try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch (e) {} }
-  function load() { try { var s = JSON.parse(localStorage.getItem(STATE_KEY) || 'null'); if (s && s.aircraft) { state = Object.assign(state, s); state.step = 0; } } catch (e) {} }
+  function save() {
+    try {
+      var safeState = JSON.parse(JSON.stringify(state));
+      safeState.ocrText = ''; // never persist manifest OCR text
+      sessionStorage.setItem(STATE_KEY, JSON.stringify(safeState));
+    } catch (e) {}
+  }
+  function load() {
+    try {
+      var raw = sessionStorage.getItem(STATE_KEY) || localStorage.getItem(LEGACY_STATE_KEY);
+      var saved = JSON.parse(raw || 'null');
+      if (saved && saved.aircraft) {
+        state.aircraft = Object.assign(state.aircraft, saved.aircraft || {});
+        state.flight = Object.assign(state.flight, saved.flight || {});
+        state.fuel = Object.assign(state.fuel, saved.fuel || {});
+        state.cargo = Object.assign(state.cargo, saved.cargo || {});
+        state.pax = Array.isArray(saved.pax) ? saved.pax : [];
+        state.step = 0;
+      }
+      localStorage.removeItem(LEGACY_STATE_KEY);
+    } catch (e) {}
+  }
   function presets() { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '{}'); } catch (e) { return {}; } }
   function savePresets(p) { localStorage.setItem(PRESET_KEY, JSON.stringify(p)); }
 
@@ -50,13 +70,21 @@
     return { seats: buildGrid(), dow: num(a.dow), doi: num(a.doi), block: num(fu.block), trip: num(fu.trip), stretcher: num(c.stretcher), bagD: num(c.bagD), bagAft: num(c.bagAft), bagShelf: num(c.bagShelf), bagR5: num(c.bagR5), bagR4: num(c.bagR4) };
   }
   function compute() {
-    var m = ENG.computeMetrics(engineInput(), CFG);
+    var input = engineInput();
+    var m = ENG.computeMetrics(input, CFG);
     var issues = [];
     var a = state.aircraft;
     if (!(num(a.dow) > 0)) issues.push({ level: 'red', text: 'Enter aircraft DOW.' });
     if (num(a.doi) === 0) issues.push({ level: 'red', text: 'Enter aircraft DOI.' });
-    if (!(num(state.fuel.block) > 0)) issues.push({ level: 'amber', text: 'Enter block fuel.' });
+    if (!(num(state.fuel.block) > 0)) issues.push({ level: 'red', text: 'Enter block fuel.' });
     if (!state.pax.length) issues.push({ level: 'amber', text: 'No passengers added.' });
+
+    if (ENG.validateInput) {
+      ENG.validateInput(input, CFG).forEach(function (issue) { issues.push({ level: 'red', text: issue.text }); });
+    }
+    state.pax.forEach(function (p) {
+      if (p.weight !== '' && p.weight != null && num(p.weight) <= 0) issues.push({ level: 'red', text: 'Passenger weight overrides must be greater than zero.' });
+    });
 
     var seatUse = {}, dup = false;
     var needReview = state.pax.filter(function (p) {
@@ -78,30 +106,36 @@
       if (lz.level === 'red') issues.push({ level: 'red', text: 'Landing: ' + lz.name + '.' }); else if (lz.level === 'amber') issues.push({ level: 'amber', text: 'Landing: ' + lz.name + '.' });
     }
 
-    var ready = num(a.dow) > 0 && num(a.doi) !== 0 && num(state.fuel.block) > 0 && state.pax.length > 0 && needReview.length === 0 && !dup;
+    var complete = num(a.dow) > 0 && num(a.doi) !== 0 && num(state.fuel.block) > 0 && state.pax.length > 0 && needReview.length === 0 && !dup;
     var hasRed = issues.some(function (i) { return i.level === 'red'; });
     var hasAmber = issues.some(function (i) { return i.level === 'amber'; });
+    if (!CFG.meta.verified) issues.push({ level: 'amber', text: 'Aircraft constants are not yet verified against approved operator data.' });
+    hasAmber = issues.some(function (i) { return i.level === 'amber'; });
     var level = hasRed ? 'red' : (hasAmber ? 'amber' : 'green');
+    var operational = complete && !hasRed && CFG.meta.verified;
+    var canPrintDraft = complete && !hasRed;
     var paxCount = state.pax.length, paxWt = state.pax.reduce(function (s, p) { return s + paxWeight(p); }, 0);
-    return { m: m, issues: issues, level: level, ready: ready, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, paxWt: paxWt };
+    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, paxWt: paxWt };
   }
 
   /* ---------- shared UI bits ---------- */
-  function statusWord(level, ready) {
-    if (!ready) return { word: 'REVIEW NEEDED', cls: 'amber' };
+  function statusWord(level, complete) {
+    if (!complete) return { word: 'REVIEW REQUIRED', cls: 'amber' };
+    if (level === 'red') return { word: 'OUT OF LIMITS', cls: 'red' };
+    if (!CFG.meta.verified) return { word: 'UNVERIFIED DATA', cls: 'amber' };
     if (level === 'green') return { word: 'WITHIN LIMITS', cls: 'green' };
     if (level === 'amber') return { word: 'CAUTION', cls: 'amber' };
-    return { word: 'OUT OF LIMITS', cls: 'red' };
+    return { word: 'REVIEW REQUIRED', cls: 'amber' };
   }
   function statCard(k, v, cls) { return '<div class="stat ' + (cls || '') + '"><span class="k">' + k + '</span><b class="v num">' + v + '</b></div>'; }
 
   /* ---------- step: Dashboard ---------- */
   function renderHero() {
-    var c = compute(), s = statusWord(c.level, c.ready);
+    var c = compute(), s = statusWord(c.level, c.complete);
     return '<section class="card hero-card" id="dashHero">' +
-      '<div class="hero-row"><div><div class="hero-type">DHC-6 Twin Otter</div><div class="muted sm">Weight &amp; Balance</div></div>' +
-      '<span class="chip ' + s.cls + '">' + s.word + '</span></div>' +
-      '<div class="stat-grid-3" style="margin-top:14px">' +
+      '<div class="hero-row"><div><div class="eyebrow">Active load calculation</div><div class="hero-type">' + esc(state.aircraft.reg || 'DHC-6 Twin Otter') + '</div><div class="muted sm">Standard 15-seat float configuration</div></div>' +
+      '<span class="chip ' + s.cls + '"><span class="status-dot"></span>' + s.word + '</span></div>' +
+      '<div class="stat-grid-3 hero-stats">' +
         statCard('DOW', f(num(state.aircraft.dow)) + ' lb', 'hl') +
         statCard('DOI', f(num(state.aircraft.doi), 2), 'hl') +
         statCard('Pax', c.paxCount, '') +
@@ -114,8 +148,10 @@
     return '' +
       renderHero() +
 
+      (!CFG.meta.verified ? '<div class="notice unverified"><b>Prototype configuration</b><span>Aircraft constants still require operator approval before operational use.</span></div>' : '') +
+
       '<section class="card">' +
-        '<h2>Aircraft</h2>' +
+        '<div class="section-title"><div><span class="section-kicker">Step 1</span><h2>Aircraft setup</h2></div><span class="section-icon">AC</span></div>' +
         '<div class="field"><label>Load saved aircraft</label><div class="row-2"><select data-action="loadPreset">' + opts + '</select><button class="btn ghost" data-action="deletePreset">Delete</button></div></div>' +
         '<div class="grid-3">' +
           field('Registration', 'aircraft.reg', state.aircraft.reg, 'text', '8Q-XXX') +
@@ -127,7 +163,7 @@
       '</section>' +
 
       '<section class="card">' +
-        '<h2>Flight</h2>' +
+        '<div class="section-title"><div><span class="section-kicker">Optional details</span><h2>Flight information</h2></div></div>' +
         '<div class="grid-3">' +
           field('Flight No.', 'flight.no', state.flight.no, 'text', 'Q2-201') +
           field2('Route', 'flight.route', state.flight.route, 'text', 'MLE–DRV') +
@@ -135,33 +171,52 @@
       '</section>' +
 
       '<div class="cta-grid">' +
-        '<button class="btn primary big" data-action="goScan"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>Scan Manifest</button>' +
-        '<button class="btn ghost big" data-action="goReview">Manual Entry</button>' +
+        '<button class="btn primary big" data-action="goScan"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span>Scan Manifest<small>Fastest entry</small></span></button>' +
+        '<button class="btn ghost big" data-action="goReview"><span>Manual Entry<small>Use seat map</small></span></button>' +
       '</div>' +
-      '<button class="btn subtle block" data-action="newFlight">Start New Flight</button>';
+      '<button class="btn subtle block" data-action="newFlight">Clear current flight</button>';
   }
-  function field(label, bind, val, type, ph) { return '<div class="field"><label>' + label + '</label><input data-bind="' + bind + '" type="' + (type || 'text') + '" ' + (type === 'number' ? 'inputmode="decimal"' : 'autocomplete="off"') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '"></div>'; }
-  function field2(label, bind, val, type, ph) { return '<div class="field" style="grid-column:span 2"><label>' + label + '</label><input data-bind="' + bind + '" type="' + (type || 'text') + '" autocomplete="off" value="' + esc(val) + '" placeholder="' + esc(ph || '') + '"></div>'; }
+  function field(label, bind, val, type, ph) {
+    var id = 'field-' + bind.replace(/[^a-z0-9]+/gi, '-');
+    var numeric = type === 'number';
+    return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" data-bind="' + bind + '" type="' + (type || 'text') + '" ' + (numeric ? 'inputmode="decimal" min="0" step="any"' : 'autocomplete="off"') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '" aria-label="' + esc(label) + '"></div>';
+  }
+  function field2(label, bind, val, type, ph) { return '<div style="grid-column:span 2">' + field(label, bind, val, type, ph) + '</div>'; }
 
   /* ---------- step: Scan ---------- */
+  function renderScanResult() {
+    if (!scanResult) return '';
+    var c = scanResult.counts;
+    var usable = c.total > 0 && c.total <= 15;
+    var issueHtml = c.issues && c.issues.length ? '<div class="scan-issues">' + c.issues.map(function (issue) { return '<div>' + esc(issue) + '</div>'; }).join('') + '</div>' : '';
+    return '<div class="scan-result">' +
+      '<div class="scan-result-head"><div><span class="section-kicker">Detection result</span><h3>' + c.total + ' passengers found</h3></div><span class="confidence ' + (scanResult.ocrConfidence >= 65 ? 'good' : 'review') + '">' + (scanResult.manual ? 'Text parsed' : f(scanResult.ocrConfidence) + '% OCR') + '</span></div>' +
+      '<div class="count-grid">' +
+        '<div><b>' + c.male + '</b><span>Male</span></div><div><b>' + c.female + '</b><span>Female</span></div><div><b>' + c.child + '</b><span>Child</span></div><div><b>' + c.infant + '</b><span>Infant</span></div><div class="unclear"><b>' + c.unknown + '</b><span>Review</span></div>' +
+      '</div>' + issueHtml +
+      '<button class="btn primary block" data-action="useScan"' + (usable ? '' : ' disabled') + '>Use detected passengers</button>' +
+      '<p class="muted sm" style="margin-bottom:0">Every detected passenger can be corrected on the seat map before calculation.</p>' +
+    '</div>';
+  }
   function renderScan() {
+    var preview = selectedPreviewUrl ? '<img class="scan-preview" src="' + esc(selectedPreviewUrl) + '" alt="Selected manifest preview">' : '<div class="upload-icon"><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></div>';
     return '' +
       '<section class="card">' +
-        '<h2>Scan Passenger Manifest</h2>' +
-        '<p class="muted sm">Take a photo or upload an image of the passenger manifest. OCR runs on-device and can misread — you review every passenger next.</p>' +
-        '<div class="dropzone"><svg viewBox="0 0 24 24" class="i-lg"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span id="fileName">No file selected</span></div>' +
+        '<div class="section-title"><div><span class="section-kicker">On-device OCR</span><h2>Scan passenger manifest</h2></div><span class="privacy-pill">Private</span></div>' +
+        '<p class="muted sm">Use a straight, well-lit photo with the full passenger list visible. The image is processed on this device and is never uploaded.</p>' +
+        '<div class="dropzone ' + (selectedFile ? 'has-file' : '') + '">' + preview + '<div><b id="fileName">' + esc(selectedFile ? selectedFile.name : 'Choose a manifest image') + '</b><span>' + (selectedFile ? f(selectedFile.size / 1024) + ' KB · ready to scan' : 'JPG, PNG or a camera photo') + '</span></div></div>' +
         '<div class="grid-2">' +
-          '<button class="btn ghost" data-action="takePhoto"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>Take Photo</button>' +
-          '<button class="btn ghost" data-action="chooseFile"><svg viewBox="0 0 24 24" class="i"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>Upload Image</button>' +
+          '<button class="btn ghost" data-action="takePhoto"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>Take photo</button>' +
+          '<button class="btn ghost" data-action="chooseFile"><svg viewBox="0 0 24 24" class="i"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>Choose image</button>' +
         '</div>' +
         '<input id="camInput" type="file" accept="image/*" capture="environment" hidden>' +
         '<input id="fileInput" type="file" accept="image/*" hidden>' +
-        '<button class="btn primary block" data-action="runOcr">Scan Document</button>' +
-        '<div id="scanProgress" class="progress"></div>' +
-        '<p id="scanStatus" class="muted sm">First scan may need internet to load the OCR engine.</p>' +
-        '<details class="acc"><summary>OCR text</summary><textarea id="ocrText" readonly placeholder="OCR result appears here">' + esc(state.ocrText) + '</textarea></details>' +
+        '<button id="scanBtn" class="btn primary block" data-action="runOcr"' + (selectedFile ? '' : ' disabled') + '>Scan document</button>' +
+        '<div class="ocr-progress"><div id="scanBar" class="progress-bar"><span></span></div><p id="scanStatus" class="muted sm">OCR engine is stored with the app and works offline.</p><div id="scanProgress" class="progress"></div></div>' +
+        renderScanResult() +
+        '<details class="acc"><summary>Recognized text · inspect or paste manually</summary><textarea id="ocrText" data-bind="ocrText" aria-label="Recognized manifest text" placeholder="OCR text appears here. You can also paste manifest text manually.">' + esc(state.ocrText) + '</textarea><button class="btn ghost block parse-text" data-action="parseOcrText">Parse this text</button></details>' +
       '</section>' +
-      '<button class="btn ghost block" data-action="goReview">Skip scan — enter manually</button>';
+      '<button class="btn subtle block" data-action="goReview">Skip scan and use manual entry</button>';
   }
 
   /* ---------- step: Review & Correction ---------- */
@@ -191,9 +246,9 @@
       var ph = need ? 'wt' : f(CFG.paxWeights[p.cat] || 0);
       return '<div class="paxrow ' + (need ? 'need' : '') + '">' +
         '<button class="catchip ' + (need ? 'need' : 'cat-' + p.cat) + '" data-action="cycleSeat" data-seat="' + esc(p.seat) + '" aria-label="Change category for ' + esc(p.seat) + '">' + esc(p.seat) + ' ' + (need ? '?' : p.cat) + '</button>' +
-        '<input class="cell name" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="Name (optional)">' +
-        '<input class="cell wt num" type="number" inputmode="decimal" data-bind="pax.' + i + '.weight" value="' + (p.weight > 0 ? p.weight : '') + '" placeholder="' + ph + '">' +
-        '<button class="iconbtn" data-action="delPax" data-i="' + i + '" aria-label="Remove">&times;</button>' +
+        '<input class="cell name" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="Name (optional)" aria-label="Passenger name for seat ' + esc(p.seat) + '">' +
+        '<input class="cell wt num" type="number" min="1" step="any" inputmode="decimal" data-bind="pax.' + i + '.weight" value="' + (p.weight > 0 ? p.weight : '') + '" placeholder="' + ph + '" aria-label="Weight override for seat ' + esc(p.seat) + '">' +
+        '<button class="iconbtn" data-action="delPax" data-i="' + i + '" aria-label="Remove passenger from seat ' + esc(p.seat) + '">&times;</button>' +
       '</div>';
     }).join('');
     return '' +
@@ -227,7 +282,7 @@
     var S = CFG.stations;
     return '' +
       '<section class="card">' +
-        '<h2>Fuel</h2>' +
+        '<div class="section-title"><div><span class="section-kicker">Departure load</span><h2>Fuel</h2></div><span class="section-icon">LB</span></div>' +
         '<div class="grid-2">' +
           field('Block fuel (lb)', 'fuel.block', state.fuel.block, 'number') +
           field('Trip fuel (lb)', 'fuel.trip', state.fuel.trip, 'number') +
@@ -235,7 +290,7 @@
         '<p class="muted sm">Takeoff fuel = block − ' + CFG.fuel.takeoffOffset + ' lb.</p>' +
       '</section>' +
       '<section class="card">' +
-        '<h2>Baggage / Cargo zones</h2>' +
+        '<div class="section-title"><div><span class="section-kicker">Station loading</span><h2>Baggage and cargo</h2></div></div>' +
         '<div class="grid-2">' +
           field('Stretcher · arm ' + S.stretcher, 'cargo.stretcher', state.cargo.stretcher, 'number') +
           field('Seat row 4 · arm ' + S.bagR4, 'cargo.bagR4', state.cargo.bagR4, 'number') +
@@ -249,24 +304,26 @@
       liveSummary();
   }
   function liveSummary() {
-    var c = compute(), m = c.m, s = statusWord(c.level, c.ready);
-    return '<section class="card live"><div class="card-head"><h2>Running totals</h2><span class="chip ' + s.cls + '">' + s.word + '</span></div>' +
+    var c = compute(), m = c.m, s = statusWord(c.level, c.complete);
+    return '<section class="card live"><div class="card-head"><div><span class="section-kicker">Live calculation</span><h2>Running totals</h2></div><span class="chip ' + s.cls + '"><span class="status-dot"></span>' + s.word + '</span></div>' +
       '<div class="stat-grid-3">' + statCard('ZFW', f(m.zfw) + ' lb') + statCard('TOW', f(m.tow) + ' lb', m.tow > CFG.limits.mtow ? 'bad' : 'hl') + statCard('TO %MAC', f(m.to.mac, 1) + '%', c.toMacOk ? 'good' : 'bad') + '</div></section>';
   }
 
   /* ---------- step: Results ---------- */
   function renderResults() {
-    var c = compute(), m = c.m, s = statusWord(c.level, c.ready);
+    var c = compute(), m = c.m, s = statusWord(c.level, c.complete);
     var issues = c.issues.length ? '<ul class="issues">' + c.issues.map(function (i) { return '<li class="' + i.level + '">' + esc(i.text) + '</li>'; }).join('') + '</ul>' : '<p class="muted sm">All checks passed within the configured limits.</p>';
+    var exportLabel = CFG.meta.verified ? 'Export load sheet' : 'Print review draft';
     return '' +
       '<section class="card banner-card ' + s.cls + '">' +
-        '<div class="banner-word">' + s.word + '</div>' +
-        '<div class="banner-sub">' + (c.ready ? ('CG ' + f(m.to.mac, 1) + '% MAC · TOW ' + f(m.tow) + ' lb') : 'Complete the required fields to finalize') + '</div>' +
+        '<div class="eyebrow">Calculation status</div><div class="banner-word">' + s.word + '</div>' +
+        '<div class="banner-sub">' + (c.complete ? ('Takeoff CG ' + f(m.to.mac, 1) + '% MAC · TOW ' + f(m.tow) + ' lb') : 'Complete the required fields and review all passengers') + '</div>' +
       '</section>' +
-      '<section class="card"><h2>CG Envelope</h2>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">Safe band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC up to MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
+      (!CFG.meta.verified ? '<div class="notice unverified strong"><b>Not for operational use</b><span>The configured envelope and aircraft constants are still unverified.</span></div>' : '') +
+      '<section class="card"><div class="section-title"><div><span class="section-kicker">Takeoff and landing</span><h2>CG envelope</h2></div></div>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">' + (CFG.meta.verified ? 'Approved' : 'Prototype') + ' band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC · MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
       '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">I Infant</span></div></section>' +
       '<section class="card">' +
-        '<h2>Weight &amp; Balance</h2>' +
+        '<div class="section-title"><div><span class="section-kicker">Load summary</span><h2>Weight and balance</h2></div></div>' +
         '<div class="stat-grid-3">' +
           statCard('Zero Fuel Wt', f(m.zfw) + ' lb') + statCard('Takeoff Wt', f(m.tow) + ' lb', m.tow > CFG.limits.mtow ? 'bad' : 'hl') + statCard('Landing Wt', f(m.lw) + ' lb') +
           statCard('Payload', f(m.payload) + ' lb') + statCard('Takeoff Fuel', f(m.tof) + ' lb') + statCard('Underload', f(CFG.limits.mtow - m.tow) + ' lb', (m.tow <= CFG.limits.mtow && m.tow > 0) ? 'good' : '') +
@@ -276,10 +333,10 @@
           cgCard('Landing', m.la, c.laMacOk, c.lz) +
         '</div>' +
       '</section>' +
-      '<section class="card"><h2>Checks</h2>' + issues + '</section>' +
-      '<button class="btn primary big block" data-action="exportPdf"' + (c.ready ? '' : ' disabled') + '>Export / Print Load Sheet</button>' +
-      (c.ready ? '' : '<p class="muted sm" style="text-align:center">Export is blocked until all required data is reviewed.</p>') +
-      '<p class="muted sm disclaimer">Prototype output. Verify all loading, fuel, CG/index and limits against approved aircraft / operator documents before operational use.</p>';
+      '<section class="card"><div class="section-title"><div><span class="section-kicker">Automated review</span><h2>Checks</h2></div></div>' + issues + '</section>' +
+      '<button class="btn primary big block" data-action="exportPdf"' + (c.canPrintDraft ? '' : ' disabled') + '>' + exportLabel + '</button>' +
+      (c.canPrintDraft ? (!CFG.meta.verified ? '<p class="muted sm export-note">The printed sheet is permanently marked UNVERIFIED.</p>' : '') : '<p class="muted sm export-note">Printing is blocked until all red issues are corrected.</p>') +
+      '<p class="muted sm disclaimer">Always verify loading, fuel, CG/index and limits against current approved aircraft and operator documents.</p>';
   }
   function cgCard(title, cg, macOk, zone) {
     var lvl = !macOk ? 'red' : zone.level;
@@ -315,13 +372,13 @@
   /* ---------- stepper + nav ---------- */
   function renderStepper() {
     return STEPS.map(function (name, i) {
-      var cls = i === state.step ? 'on' : (i < state.step ? 'done' : '');
+      var cls = i === state.step ? 'on' : (i < state.step ? 'visited' : '');
       return '<button class="stepdot ' + cls + '" data-action="goto" data-i="' + i + '"><span class="n">' + (i + 1) + '</span><span class="t">' + name + '</span></button>';
     }).join('');
   }
   function renderNav() {
     var prev = state.step > 0 ? '<button class="btn ghost" data-action="prev">Back</button>' : '<span></span>';
-    var next = state.step < STEPS.length - 1 ? '<button class="btn primary" data-action="next">' + (state.step === 0 ? 'Continue' : (state.step === 3 ? 'Calculate CG' : 'Next')) + '</button>' : '<button class="btn ghost" data-action="goto" data-i="0">New Flight</button>';
+    var next = state.step < STEPS.length - 1 ? '<button class="btn primary" data-action="next">' + (state.step === 0 ? 'Continue' : (state.step === 3 ? 'Calculate CG' : 'Next')) + '</button>' : '<button class="btn ghost" data-action="newFlight">New Flight</button>';
     return prev + next;
   }
 
@@ -364,83 +421,166 @@
   function delPax(i) { state.pax.splice(i, 1); render(); }
 
   /* ---------- OCR ---------- */
-  var selectedFile = null;
+  var selectedFile = null, selectedPreviewUrl = '', scanResult = null, ocrWorker = null, ocrBusy = false;
+  function clearSelectedFile() {
+    if (selectedPreviewUrl) try { URL.revokeObjectURL(selectedPreviewUrl); } catch (e) {}
+    selectedFile = null; selectedPreviewUrl = ''; scanResult = null; state.ocrText = '';
+  }
   function wireScanInputs() {
     ['camInput', 'fileInput'].forEach(function (id) {
       var inp = $(id);
       if (inp) inp.onchange = function () {
         if (inp.files && inp.files[0]) {
-          selectedFile = inp.files[0];
-          var fn = $('fileName'); if (fn) fn.textContent = selectedFile.name;
-          setScan('Ready to scan: ' + selectedFile.name);
+          var file = inp.files[0];
+          if (!/^image\//.test(file.type || '')) return toast('Choose a JPG, PNG or camera image.');
+          if (file.size > 20 * 1024 * 1024) return toast('Image is too large. Choose one under 20 MB.');
+          if (selectedPreviewUrl) try { URL.revokeObjectURL(selectedPreviewUrl); } catch (e) {}
+          selectedFile = file;
+          selectedPreviewUrl = URL.createObjectURL(file);
+          scanResult = null; state.ocrText = '';
+          render();
         }
       };
     });
-    if (selectedFile) { var fn = $('fileName'); if (fn) fn.textContent = selectedFile.name; }
   }
+
   function preprocessImage(file) {
     return new Promise(function (resolve) {
       try {
         var img = new Image();
         img.onload = function () {
-          // upscale small photos, cap large ones; OCR likes ~1500px wide
-          var scale = img.width < 1000 ? Math.min(2.5, 1500 / img.width) : Math.min(1, 2200 / img.width);
+          // Upscale phone screenshots and cap very large photos to control memory.
+          var longEdge = Math.max(img.width, img.height);
+          var target = longEdge < 1600 ? 1900 : Math.min(2600, longEdge);
+          var scale = target / longEdge;
           if (!isFinite(scale) || scale <= 0) scale = 1;
           var w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
           var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-          var ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+          var ctx = cv.getContext('2d', { willReadFrequently: true });
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
           var d, a; try { d = ctx.getImageData(0, 0, w, h); a = d.data; } catch (e) { resolve(cv); return; }
-          var i, g, min = 255, max = 0;
-          for (i = 0; i < a.length; i += 4) { g = (a[i] * 0.299 + a[i + 1] * 0.587 + a[i + 2] * 0.114) | 0; a[i] = a[i + 1] = a[i + 2] = g; if (g < min) min = g; if (g > max) max = g; }
-          var range = (max - min) || 1;                       // contrast stretch to full range
-          for (i = 0; i < a.length; i += 4) { g = Math.round((a[i] - min) * 255 / range); g = g < 0 ? 0 : g > 255 ? 255 : g; a[i] = a[i + 1] = a[i + 2] = g; }
+          var i, g, histogram = new Array(256).fill(0), pixels = a.length / 4;
+          for (i = 0; i < a.length; i += 4) {
+            g = Math.round(a[i] * 0.299 + a[i + 1] * 0.587 + a[i + 2] * 0.114);
+            a[i] = a[i + 1] = a[i + 2] = g; histogram[g]++;
+          }
+          var lowTarget = pixels * 0.008, highTarget = pixels * 0.992, sum = 0, low = 0, high = 255;
+          for (i = 0; i < 256; i++) { sum += histogram[i]; if (sum >= lowTarget) { low = i; break; } }
+          sum = 0;
+          for (i = 0; i < 256; i++) { sum += histogram[i]; if (sum >= highTarget) { high = i; break; } }
+          var range = Math.max(30, high - low);
+          for (i = 0; i < a.length; i += 4) {
+            g = Math.round((a[i] - low) * 255 / range);
+            g = g < 0 ? 0 : g > 255 ? 255 : g;
+            a[i] = a[i + 1] = a[i + 2] = g;
+          }
           ctx.putImageData(d, 0, 0);
           resolve(cv);
         };
         img.onerror = function () { resolve(file); };
-        img.src = URL.createObjectURL(file);
+        img.src = selectedPreviewUrl || URL.createObjectURL(file);
       } catch (e) { resolve(file); }
     });
   }
-  function runOcr() {
-    if (!selectedFile) { setScan('Take a photo or upload an image first.'); return; }
-    if (!window.Tesseract) { setScan('OCR engine not loaded — internet may be needed the first time.'); return; }
-    setScan('Enhancing image…'); setProgress('preprocessing');
-    preprocessImage(selectedFile).then(function (src) {
-      setScan('Scanning…');
-      return window.Tesseract.recognize(src, 'eng', { logger: function (mm) { if (mm.status) setProgress(mm.status + (mm.progress ? ' ' + Math.round(mm.progress * 100) + '%' : '')); } });
-    }).then(function (res) {
-      var text = (res && res.data && res.data.text) || ''; state.ocrText = text;
-      var c = PARSE.parseManifestCounts(text);
-      applyScan(c); setProgress('done');
-    }).catch(function (e) { console.error(e); setProgress('failed'); setScan('OCR failed. Try a clearer, straight, well-lit photo, or enter passengers manually.'); });
+
+  function getOcrWorker() {
+    if (ocrWorker) return Promise.resolve(ocrWorker);
+    if (!window.Tesseract || !window.Tesseract.createWorker) return Promise.reject(new Error('OCR library is unavailable'));
+    var base = new URL('.', window.location.href);
+    return window.Tesseract.createWorker('eng', 1, {
+      workerPath: new URL('vendor/tesseract/worker.min.js', base).href,
+      corePath: new URL('vendor/tesseract/core/tesseract-core-lstm.wasm.js', base).href,
+      langPath: new URL('vendor/tesseract/lang', base).href,
+      workerBlobURL: false,
+      gzip: true,
+      logger: function (message) {
+        var pct = typeof message.progress === 'number' ? Math.round(message.progress * 100) : 0;
+        setProgress(message.status || 'working', pct);
+      },
+      errorHandler: function (error) { console.error('OCR worker:', error); }
+    }).then(function (worker) {
+      ocrWorker = worker;
+      return worker.setParameters({ tessedit_pageseg_mode: '3', preserve_interword_spaces: '1', user_defined_dpi: '300' }).then(function () { return worker; });
+    });
   }
+
+  function runOcr() {
+    if (!selectedFile) { setScan('Choose a manifest image first.'); return; }
+    if (ocrBusy) return;
+    ocrBusy = true; scanResult = null;
+    var button = $('scanBtn'); if (button) button.disabled = true;
+    setScan('Enhancing the image for clearer text…'); setProgress('preparing image', 5);
+    var enhanced;
+    preprocessImage(selectedFile).then(function (src) {
+      enhanced = src;
+      setScan('Starting the on-device OCR engine…'); setProgress('loading OCR', 10);
+      return getOcrWorker();
+    }).then(function (worker) {
+      setScan('Reading names, categories and totals…');
+      return worker.recognize(enhanced);
+    }).then(function (result) {
+      var text = (result && result.data && result.data.text || '').trim();
+      var confidence = result && result.data && isFinite(result.data.confidence) ? result.data.confidence : 0;
+      state.ocrText = text;
+      scanResult = { counts: PARSE.parseManifestCounts(text), ocrConfidence: confidence, manual: false };
+      setProgress('complete', 100);
+      ocrBusy = false;
+      render();
+      if (!text) toast('No readable text found. Try a sharper, closer photo.');
+      else toast('Scan complete. Check the detected passenger totals.');
+    }).catch(function (error) {
+      console.error(error);
+      ocrBusy = false;
+      if (ocrWorker && ocrWorker.terminate) try { ocrWorker.terminate(); } catch (e) {}
+      ocrWorker = null;
+      setProgress('failed', 0);
+      setScan('OCR could not finish. Try another image or paste the manifest text below.');
+      if (button) button.disabled = false;
+    });
+  }
+
+  function parseOcrText() {
+    var text = String(state.ocrText || '').trim();
+    if (!text) return toast('Paste or enter manifest text first.');
+    scanResult = { counts: PARSE.parseManifestCounts(text), ocrConfidence: 100, manual: true };
+    render();
+  }
+
   function applyScan(c) {
     var list = [], i;
+    if (!c || !c.total) return toast('No passengers were detected. Enter them manually or try another scan.');
+    if (c.total > 15) return toast('Detected count exceeds the 15-seat cabin. Check the manifest text before continuing.');
     for (i = 0; i < (c.male || 0); i++) list.push('M');
     for (i = 0; i < (c.female || 0); i++) list.push('F');
     for (i = 0; i < (c.child || 0); i++) list.push('C');
+    for (i = 0; i < (c.infant || 0); i++) list.push('I');
     for (i = 0; i < (c.unknown || 0); i++) list.push('?');
-    list = list.slice(0, 15);
+    if (list.length > 15) return toast('Passenger categories exceed the 15-seat cabin. Review the detected text.');
     state.pax = list.map(function (cat, idx) { return { id: uid(), name: 'Pax ' + (idx + 1), cat: cat, seat: SEATS[idx] }; });
     if (c.load) {
       var bag = (c.load.luggage || 0) + (c.load.cargo || 0); if (bag) state.cargo.bagD = bag;
       if (c.load.takeoffFuel) state.fuel.block = c.load.takeoffFuel + CFG.fuel.takeoffOffset;
       if (c.load.burnFuel) state.fuel.trip = c.load.burnFuel;
     }
-    toast('Detected ' + (c.male || 0) + 'M / ' + (c.female || 0) + 'F / ' + (c.child || 0) + 'C' + (c.unknown ? ' / ' + c.unknown + ' unclear' : '') + ' (' + c.confidence + ' confidence). Review each passenger.');
+    toast('Loaded ' + list.length + ' passengers. Review every seat before calculating.');
     go(2);
   }
   function setScan(t) { var e = $('scanStatus'); if (e) e.textContent = t; }
-  function setProgress(t) { var e = $('scanProgress'); if (e) e.textContent = t ? 'OCR: ' + t : ''; }
+  function setProgress(t, pct) {
+    var e = $('scanProgress'); if (e) e.textContent = t ? 'OCR · ' + t : '';
+    var bar = $('scanBar'); if (bar) { var span = bar.querySelector('span'); if (span) span.style.width = Math.max(0, Math.min(100, pct || 0)) + '%'; }
+  }
 
   /* ---------- PDF / print ---------- */
   function exportPdf() {
-    var c = compute(), m = c.m, s = statusWord(c.level, c.ready), now = new Date().toLocaleString();
+    var c = compute();
+    if (!c.canPrintDraft) return toast('Correct all red issues before printing.');
+    var m = c.m, s = statusWord(c.level, c.complete), now = new Date().toLocaleString();
     function rows(title, arr) { return '<div class="ps-sec"><h3>' + title + '</h3>' + arr.map(function (r) { return '<div class="ps-row"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>'; }).join('') + '</div>'; }
     var paxRows = state.pax.map(function (p) { return '<div class="ps-row"><span>' + esc(p.name) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(p.seat || '—') + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
     $('printSheet').innerHTML =
-      '<div class="ps-head"><div><div class="ps-title">DHC-6 CG / LOAD SHEET</div><div class="ps-sub">Weight &amp; Balance Summary</div></div>' +
+      (!CFG.meta.verified ? '<div class="ps-watermark">UNVERIFIED · REVIEW DRAFT · NOT FOR OPERATIONAL USE</div>' : '') +
+      '<div class="ps-head"><div><div class="ps-title">DHC-6 CG / ' + (CFG.meta.verified ? 'LOAD SHEET' : 'REVIEW DRAFT') + '</div><div class="ps-sub">Weight &amp; Balance Summary</div></div>' +
       '<div class="ps-meta"><b>Aircraft:</b> ' + esc(state.aircraft.reg || '—') + '<br><b>Flight:</b> ' + esc(state.flight.no || '—') + '<br><b>Route:</b> ' + esc(state.flight.route || '—') + '<br><b>Date:</b> ' + now + '</div></div>' +
       '<div class="ps-status ' + s.cls + '">' + s.word + ' — TO ' + f(m.to.mac, 2) + '% MAC · TOW ' + f(m.tow) + ' lb</div>' +
       '<div class="ps-grid">' +
@@ -452,7 +592,7 @@
       '<div class="ps-sec"><h3>Passengers (' + c.paxCount + ' · ' + f(c.paxWt) + ' lb)</h3>' + (paxRows || '<div class="ps-row"><span>None</span><b>—</b></div>') + '</div>' +
       rows('Baggage / Cargo', [['Stretcher', f(num(state.cargo.stretcher)) + ' lb'], ['Seat row 4', f(num(state.cargo.bagR4)) + ' lb'], ['Seat row 5', f(num(state.cargo.bagR5)) + ' lb'], ['Area D', f(num(state.cargo.bagD)) + ' lb'], ['Aft compartment', f(num(state.cargo.bagAft)) + ' lb'], ['Aft shelf', f(num(state.cargo.bagShelf)) + ' lb']]) +
       '<div class="ps-sec"><h3>Remarks</h3><div class="ps-row"><span>' + (esc(state.flight.remarks) || '—') + '</span></div></div>' +
-      '<div class="ps-note">Prototype output. Verify all loading, fuel, CG/index and limits against approved aircraft / operator documents before operational use.</div>' +
+      '<div class="ps-note">' + (CFG.meta.verified ? '' : 'UNVERIFIED REVIEW DRAFT — NOT FOR OPERATIONAL USE. ') + 'Verify all loading, fuel, CG/index and limits against approved aircraft / operator documents.</div>' +
       '<div class="ps-sign"><div class="ps-line">Prepared / Checked by</div><div class="ps-line">PIC / Approval</div></div>';
     setTimeout(function () { window.print(); }, 60);
   }
@@ -469,6 +609,7 @@
     state.cargo = { stretcher: 0, bagR4: 0, bagR5: 0, bagD: 0, bagAft: 0, bagShelf: 0 };
     state.pax = []; state.ocrText = '';
     state.aircraft = { reg: keepReg, dow: keepDow, doi: keepDoi };
+    clearSelectedFile();
     go(0);
   }
 
@@ -495,6 +636,8 @@
       case 'takePhoto': var ci = $('camInput'); if (ci) ci.click(); break;
       case 'chooseFile': var fi = $('fileInput'); if (fi) fi.click(); break;
       case 'runOcr': runOcr(); break;
+      case 'parseOcrText': parseOcrText(); break;
+      case 'useScan': if (scanResult) applyScan(scanResult.counts); break;
       case 'cycleSeat': cycleSeat(t.getAttribute('data-seat')); break;
       case 'clearPax': clearPax(); break;
       case 'delPax': delPax(+i); break;
@@ -508,7 +651,7 @@
 
   /* ---------- init ---------- */
   function init() {
-    if (!CFG || !ENG) { document.body.innerHTML = '<p style="padding:20px">Failed to load calculation engine.</p>'; return; }
+    if (!CFG || !ENG || !PARSE) { document.body.innerHTML = '<p style="padding:20px">Failed to load the calculator. Refresh the page and try again.</p>'; return; }
     load();
     var v = $('view');
     v.addEventListener('input', onInput);

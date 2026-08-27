@@ -18,6 +18,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
 
   function num(x) { var v = parseFloat(x); return isFinite(v) ? v : 0; }
+  function nonNegative(x) { return Math.max(0, num(x)); }
 
   function fmt2(x) {
     return Number(x || 0).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -39,30 +40,30 @@
     // A seat cell is either a category code (standard weight from config) or a
     // number (an actual/override weight in lb). Same moment formula either way.
     var pr = seats.map(function (r) {
-      return r.reduce(function (a, k) { return a + (typeof k === 'number' ? k : (W[k] || 0)); }, 0);
+      return r.reduce(function (a, k) { return a + (typeof k === 'number' ? nonNegative(k) : (W[k] || 0)); }, 0);
     });
 
     var pax = pr.reduce(function (a, b) { return a + b; }, 0);
     var pm = pr.reduce(function (a, w, i) { return a + w * arms[i]; }, 0);
 
-    var st = num(input.stretcher);
+    var st = nonNegative(input.stretcher);
     pax += st;
     pm += st * S.stretcher;
 
-    var bd = num(input.bagD), ba = num(input.bagAft), bs = num(input.bagShelf),
-        br5 = num(input.bagR5), br4 = num(input.bagR4);
+    var bd = nonNegative(input.bagD), ba = nonNegative(input.bagAft), bs = nonNegative(input.bagShelf),
+        br5 = nonNegative(input.bagR5), br4 = nonNegative(input.bagR4);
     var bag = bd + ba + bs + br5 + br4;
     var bm = bd * S.bagD + ba * S.bagAft + bs * S.bagShelf + br5 * S.bagR5 + br4 * S.bagR4;
 
-    var dow = num(input.dow), doi = num(input.doi),
-        block = num(input.block), trip = num(input.trip);
+    var dow = nonNegative(input.dow), doi = num(input.doi),
+        block = nonNegative(input.block), trip = nonNegative(input.trip);
 
     var payload = pax + bag;
     var zfw = dow + payload;
-    var tof = block > 0 ? block - F.takeoffOffset : 0;
-    var lf = tof - trip;
+    var tof = block >= F.takeoffOffset ? block - F.takeoffOffset : 0;
+    var lf = Math.max(0, tof - trip);
     var tow = zfw + tof;
-    var lw = tow - trip;
+    var lw = zfw + lf;
 
     var dm = 0;
     if (dow > 0) {
@@ -103,5 +104,28 @@
     return isFinite(mac) && mac >= cfg.limits.cgFwd && mac <= cfg.limits.cgAft;
   }
 
-  return { computeMetrics: computeMetrics, indexZone: indexZone, macInLimit: macInLimit, num: num };
+  /** Validate raw loading values before they are normalized for calculation. */
+  function validateInput(input, cfg) {
+    var issues = [];
+    var requiredNonNegative = [
+      ['Block fuel', input.block], ['Trip fuel', input.trip],
+      ['Stretcher', input.stretcher], ['Seat row 4 baggage', input.bagR4],
+      ['Seat row 5 baggage', input.bagR5], ['Area D baggage', input.bagD],
+      ['Aft compartment baggage', input.bagAft], ['Aft shelf baggage', input.bagShelf]
+    ];
+    requiredNonNegative.forEach(function (entry) {
+      if (num(entry[1]) < 0) issues.push({ code: 'negative', field: entry[0], text: entry[0] + ' cannot be negative.' });
+    });
+    if (num(input.dow) < 0) issues.push({ code: 'negative', field: 'DOW', text: 'DOW cannot be negative.' });
+    if (num(input.block) > 0 && num(input.block) < cfg.fuel.takeoffOffset) {
+      issues.push({ code: 'fuel-offset', field: 'Block fuel', text: 'Block fuel must be at least ' + cfg.fuel.takeoffOffset + ' lb.' });
+    }
+    var takeoffFuel = Math.max(0, num(input.block) - cfg.fuel.takeoffOffset);
+    if (num(input.trip) > takeoffFuel) {
+      issues.push({ code: 'trip-fuel', field: 'Trip fuel', text: 'Trip fuel cannot exceed takeoff fuel.' });
+    }
+    return issues;
+  }
+
+  return { computeMetrics: computeMetrics, indexZone: indexZone, macInLimit: macInLimit, validateInput: validateInput, num: num };
 });

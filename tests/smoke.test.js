@@ -96,7 +96,7 @@ test('cargo & fuel step accepts fuel/baggage', () => {
 test('results step shows a status banner and CG envelope chart', () => {
   click(actionBtn('next'));   // cargo -> results
   const html = $('view').innerHTML;
-  if (!/(WITHIN LIMITS|OUT OF LIMITS|CAUTION|REVIEW NEEDED)/.test(html)) throw new Error('no status banner');
+  if (!/(WITHIN LIMITS|OUT OF LIMITS|CAUTION|REVIEW REQUIRED|UNVERIFIED DATA)/.test(html)) throw new Error('no status banner');
   if (!q('svg.chart')) throw new Error('no CG envelope chart');
   if (!/% MAC/.test(html)) throw new Error('no %MAC output');
   if (!q('.seat-tile.ro')) throw new Error('no read-only cabin layout on results');
@@ -106,6 +106,12 @@ test('export builds a load sheet without error', () => {
   const btn = actionBtn('exportPdf');
   if (btn && !btn.disabled) click(btn);
   // if disabled, that is valid (data incomplete) — just ensure no crash
+});
+
+test('New Flight from results clears the previous loading', () => {
+  click(actionBtn('newFlight'));
+  if (!/Aircraft setup/.test($('view').innerHTML)) throw new Error('did not return to dashboard');
+  if (!/Pax<\/span><b class="v num">0<\/b>/.test($('view').innerHTML)) throw new Error('passengers were not cleared');
 });
 
 test('no uncaught runtime errors during the flow', () => {

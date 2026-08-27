@@ -1,5 +1,5 @@
-const CACHE_NAME = 'dhc6-cg-calculator-v5';
-const FILES_TO_CACHE = [
+const CACHE_NAME = 'dhc6-load-balance-v7';
+const CORE_ASSETS = [
   './',
   './index.html',
   './config.js',
@@ -8,20 +8,59 @@ const FILES_TO_CACHE = [
   './app.js',
   './manifest.webmanifest',
   './icons/icon.svg',
-  './icons/seaplane-logo.svg'
+  './icons/seaplane-logo.svg',
+  './vendor/tesseract/tesseract.min.js',
+  './vendor/tesseract/worker.min.js',
+  './vendor/tesseract/core/tesseract-core-lstm.wasm.js',
+  './vendor/tesseract/lang/eng.traineddata.gz'
 ];
 
-self.addEventListener('install', function(event) {
-  event.waitUntil(caches.open(CACHE_NAME).then(function(cache) { return cache.addAll(FILES_TO_CACHE); }));
-  self.skipWaiting();
+self.addEventListener('install', function (event) {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(function (cache) { return cache.addAll(CORE_ASSETS); })
+      .then(function () { return self.skipWaiting(); })
+  );
 });
 
-self.addEventListener('activate', function(event) {
-  event.waitUntil(caches.keys().then(function(keys) {
-    return Promise.all(keys.filter(function(key) { return key !== CACHE_NAME; }).map(function(key) { return caches.delete(key); }));
-  }).then(function() { return self.clients.claim(); }));
+self.addEventListener('activate', function (event) {
+  event.waitUntil(
+    caches.keys()
+      .then(function (keys) {
+        return Promise.all(keys.filter(function (key) { return key !== CACHE_NAME; }).map(function (key) { return caches.delete(key); }));
+      })
+      .then(function () { return self.clients.claim(); })
+  );
 });
 
-self.addEventListener('fetch', function(event) {
-  event.respondWith(fetch(event.request).catch(function() { return caches.match(event.request); }));
+self.addEventListener('fetch', function (event) {
+  if (event.request.method !== 'GET') return;
+  var url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(function (response) {
+          var copy = response.clone();
+          caches.open(CACHE_NAME).then(function (cache) { cache.put('./index.html', copy); });
+          return response;
+        })
+        .catch(function () { return caches.match('./index.html'); })
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request, { ignoreSearch: true }).then(function (cached) {
+      if (cached) return cached;
+      return fetch(event.request).then(function (response) {
+        if (response && response.ok) {
+          var copy = response.clone();
+          caches.open(CACHE_NAME).then(function (cache) { cache.put(event.request, copy); });
+        }
+        return response;
+      });
+    })
+  );
 });

@@ -2,7 +2,7 @@
  * No framework — exits non-zero on first failure so it can gate CI. */
 const assert = require('assert');
 const cfg = require('../config.js');
-const { computeMetrics, indexZone, macInLimit } = require('../engine.js');
+const { computeMetrics, indexZone, macInLimit, validateInput } = require('../engine.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -70,6 +70,25 @@ test('zero DOW yields zero arms, no NaN', () => {
   const m = computeMetrics({ seats: empty(), dow: 0, doi: 0 }, cfg);
   assert.strictEqual(m.to.arm, 0);
   assert.ok(isFinite(m.to.index) && isFinite(m.to.mac));
+});
+
+test('negative loads are rejected and never reduce calculated payload', () => {
+  const input = { seats: empty(), dow: 9142, doi: 13.8, block: 2000, trip: -400, bagD: -500 };
+  const issues = validateInput(input, cfg);
+  assert.ok(issues.some(i => /Trip fuel cannot be negative/.test(i.text)));
+  assert.ok(issues.some(i => /Area D baggage cannot be negative/.test(i.text)));
+  const m = computeMetrics(input, cfg);
+  assert.strictEqual(m.bag, 0);
+  assert.strictEqual(m.payload, 0);
+  assert.ok(m.lw <= m.tow, 'landing weight must never exceed takeoff weight');
+});
+
+test('trip fuel above takeoff fuel is rejected and landing fuel floors at zero', () => {
+  const input = { seats: empty(), dow: 9142, doi: 13.8, block: 500, trip: 600 };
+  assert.ok(validateInput(input, cfg).some(i => /cannot exceed takeoff fuel/.test(i.text)));
+  const m = computeMetrics(input, cfg);
+  assert.strictEqual(m.lf, 0);
+  assert.strictEqual(m.lw, m.zfw);
 });
 
 // --- %MAC limit gate (25–32) ---

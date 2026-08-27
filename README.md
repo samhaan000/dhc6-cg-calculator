@@ -1,9 +1,8 @@
 # DHC-6 CG Calculator
 
-Offline-first PWA for DHC-6 Twin Otter weight & balance. A mobile-first
-**wizard**: Dashboard → Scan manifest (OCR) → Review & correct passengers →
-Cargo & fuel → Results (CG/%MAC, limit status, CG-envelope graph) → export /
-print load sheet.
+Offline-first PWA for DHC-6 Twin Otter weight and balance. A professional,
+mobile-first workflow: aircraft setup → private on-device manifest scan →
+passenger and seat review → cargo and fuel → CG results and review sheet.
 
 > **Safety:** Prototype. Every aircraft-critical value lives in `config.js` and
 > is **not** verified against an operator-approved DHC-6 W&B manual. Audit all
@@ -21,12 +20,24 @@ print load sheet.
 | `app.js` | Wizard controller — state, steps, OCR run, CG-envelope chart, PDF |
 | `index.html` | App shell + design system |
 | `sw.js` | Service worker (offline cache) |
+| `vendor/tesseract/` | Pinned local OCR engine, worker, English data and WebAssembly core |
 | `tests/*.test.js` | Engine + wizard-integration unit tests |
 
 `app.js` collects the loading (aircraft, passengers with seat assignments,
 cargo, fuel) and calls `WBEngine.computeMetrics(input, DHC6_CONFIG)`. OCR text
-is parsed by `WBParsers`; nothing is silently accepted — unclear passengers are
-flagged "needs review" and export is blocked until resolved.
+is parsed by `WBParsers`; nothing is silently accepted. The scan shows detected
+category totals before applying them, unclear passengers are flagged for review,
+and counts above the 15-seat capacity are blocked.
+
+OCR assets are self-hosted and included in the service-worker cache. Passenger
+manifest images never leave the device. Raw OCR text is not persisted, and the
+active flight is kept only in session storage; saved aircraft presets remain in
+local storage.
+
+Invalid inputs such as negative baggage, negative trip fuel, trip fuel above
+takeoff fuel, duplicate seats, overweight loads and out-of-envelope CG block
+printing. While `config.meta.verified` is `false`, any printable output is
+permanently marked **UNVERIFIED / NOT FOR OPERATIONAL USE**.
 
 ## Tests
 
@@ -35,13 +46,15 @@ npm install   # dev only: jsdom, for the headless smoke test
 npm test      # engine + wizard unit tests + headless wizard smoke test
 ```
 
-`tests/smoke.test.js` loads the real page in jsdom and drives the whole wizard
-(it skips automatically if jsdom isn't installed). The engine/wizard unit tests
-need no dependencies.
+`tests/smoke.test.js` loads the real page in jsdom and drives the whole wizard.
+The suite also checks negative/impossible loads, OCR parser regressions, the
+New Flight reset, and the locally cached OCR deployment assets.
 
 ## Run / deploy
 
-Static site, no build. Open `index.html`, or serve via GitHub Pages on `main`.
+Static site, no build. Serve the repository root through GitHub Pages on `main`.
+Use a local HTTP server for development because service workers and OCR workers
+do not run correctly from a `file://` URL.
 
 ## Editing aircraft data
 
