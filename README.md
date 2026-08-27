@@ -17,6 +17,7 @@ passenger and seat review → cargo and fuel → CG results and review sheet.
 | `config.js` | **Single source of truth** for aircraft data — arms, weights, index/MAC constants, limits, float zones |
 | `engine.js` | Pure, DOM-free calculation engine (`WBEngine`) |
 | `parsers.js` | Pure manifest OCR text parsers (`WBParsers`) |
+| `seating.js` | Pure passenger-seat optimizer (`WBSeating`) |
 | `app.js` | Wizard controller — state, steps, OCR run, CG-envelope chart, PDF |
 | `index.html` | App shell + design system |
 | `sw.js` | Service worker (offline cache) |
@@ -27,8 +28,12 @@ passenger and seat review → cargo and fuel → CG results and review sheet.
 cargo, fuel) and calls `WBEngine.computeMetrics(input, DHC6_CONFIG)`. OCR text
 is parsed by `WBParsers`; nothing is silently accepted. Structured resort
 manifests are rebuilt from OCR word positions so the app can read passenger
-names, ticket rows, passenger weights and luggage totals. Category totals are
-cross-checked against the printed passenger-weight total before applying them;
+names, ticket rows, passenger weights and luggage totals. Detected category and
+load totals are editable before import, so a faint gender column never blocks
+the workflow. Passenger names are optional. The seating optimizer creates a
+balanced initial cabin and can be run again after fuel and baggage are entered;
+the completed load is still checked against every configured CG and weight limit.
+Category totals are cross-checked against the printed passenger-weight total;
 unclear passengers are flagged and counts above the 15-seat capacity are blocked.
 
 OCR assets are self-hosted and included in the service-worker cache. Passenger
@@ -49,8 +54,9 @@ npm test      # engine + wizard unit tests + headless wizard smoke test
 ```
 
 `tests/smoke.test.js` loads the real page in jsdom and drives the whole wizard.
-The suite also checks negative/impossible loads, OCR parser regressions, the
-New Flight reset, and the locally cached OCR deployment assets.
+The suite also checks negative/impossible loads, OCR parser regressions,
+editable scan results, automatic seat balancing, the New Flight reset, and the
+locally cached OCR deployment assets.
 
 ## Run / deploy
 

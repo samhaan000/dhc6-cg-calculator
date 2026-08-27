@@ -22,6 +22,8 @@ assets.forEach(asset => {
   assert.ok(sw.includes('./' + asset), `${asset} is not in the offline cache`);
 });
 assert.ok(html.includes('vendor/tesseract/tesseract.min.js'), 'the local OCR library is not loaded');
+assert.ok(html.includes('seating.js'), 'the seat optimizer is not loaded');
+assert.ok(sw.includes('./seating.js?v='), 'the seat optimizer is not in the offline cache');
 assert.ok(!/cdn\.jsdelivr|unpkg\.com/.test(html), 'runtime still depends on a third-party OCR CDN');
 assert.ok(/controllerchange/.test(html), 'the page does not reload when a new service worker activates');
 assert.ok(/updateViaCache:\s*'none'/.test(html), 'service-worker updates can still use a stale HTTP cache');

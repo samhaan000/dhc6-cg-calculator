@@ -6,9 +6,9 @@
  * ========================================================================== */
 (function () {
   'use strict';
-  var CFG = window.DHC6_CONFIG, ENG = window.WBEngine, PARSE = window.WBParsers;
+  var CFG = window.DHC6_CONFIG, ENG = window.WBEngine, PARSE = window.WBParsers, SEATING = window.WBSeating;
 
-  var STEPS = ['Dashboard', 'Scan', 'Review', 'Cargo & Fuel', 'Results'];
+  var STEPS = ['Setup', 'Manifest', 'Seating', 'Load', 'CG'];
   var SEATS = (function () { var a = [], r, c, C = ['A', 'B', 'C']; for (r = 1; r <= 5; r++) for (c = 0; c < 3; c++) a.push(r + C[c]); return a; })();
   var CAT_LABEL = { M: 'Male', F: 'Female', C: 'Child', I: 'Infant', '?': 'Needs review' };
   function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I'; }
@@ -32,6 +32,11 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]; }); }
   function parseSeat(s) { var m = /^([1-5])([ABC])$/i.exec(String(s || '').trim()); return m ? { row: +m[1] - 1, col: 'ABC'.indexOf(m[2].toUpperCase()) } : null; }
   function paxWeight(p) { var w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return CFG.paxWeights[p.cat] || 0; }
+  function categoryCounts() {
+    var counts = { M: 0, F: 0, C: 0, I: 0, '?': 0 };
+    state.pax.forEach(function (passenger) { counts.hasOwnProperty(passenger.cat) ? counts[passenger.cat]++ : counts['?']++; });
+    return counts;
+  }
 
   /* ---------- persistence ---------- */
   function save() {
@@ -172,7 +177,7 @@
 
       '<div class="cta-grid">' +
         '<button class="btn primary big" data-action="goScan"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span>Scan Manifest<small>Fastest entry</small></span></button>' +
-        '<button class="btn ghost big" data-action="goReview"><span>Manual Entry<small>Use seat map</small></span></button>' +
+        '<button class="btn ghost big" data-action="goReview"><span>Manual Entry<small>Enter passenger totals</small></span></button>' +
       '</div>' +
       '<button class="btn subtle block" data-action="newFlight">Clear current flight</button>';
   }
@@ -184,35 +189,46 @@
   function field2(label, bind, val, type, ph) { return '<div style="grid-column:span 2">' + field(label, bind, val, type, ph) + '</div>'; }
 
   /* ---------- step: Scan ---------- */
+  function scanPassengerTotal(c) {
+    return ['male', 'female', 'child', 'infant', 'unknown'].reduce(function (sum, key) { return sum + Math.max(0, Math.floor(num(c[key]))); }, 0);
+  }
+  function scanCountField(c, key, label, cls) {
+    return '<label class="scan-edit ' + cls + '"><span>' + label + '</span><input type="number" min="0" max="15" step="1" inputmode="numeric" data-scan-bind="' + key + '" value="' + Math.max(0, Math.floor(num(c[key]))) + '" aria-label="' + label + ' passenger count"></label>';
+  }
+  function scanLoadField(load, key, label) {
+    var value = load[key];
+    return '<label class="scan-load-edit"><span>' + label + '</span><div><input type="number" min="0" step="1" inputmode="decimal" data-scan-load-bind="' + key + '" value="' + (value !== null && value !== undefined ? esc(value) : '') + '" placeholder="0" aria-label="' + label + '"><b>lb</b></div></label>';
+  }
   function renderScanResult() {
     if (!scanResult) return '';
     var c = scanResult.counts;
+    c.total = scanPassengerTotal(c);
     var usable = c.total > 0 && c.total <= 15;
-    var issueHtml = c.issues && c.issues.length ? '<div class="scan-issues">' + c.issues.map(function (issue) { return '<div>' + esc(issue) + '</div>'; }).join('') + '</div>' : '';
+    var issueHtml = c.issues && c.issues.length ? '<details class="scan-notes"><summary>Scanner notes</summary><div class="scan-issues">' + c.issues.map(function (issue) { return '<div>' + esc(issue) + '</div>'; }).join('') + '</div></details>' : '';
     var meta = c.meta || {}, load = c.load || {}, evidence = c.evidence || {};
     var metaHtml = (meta.registration || meta.flightNo || meta.route || meta.time) ? '<div class="manifest-id">' +
       (meta.registration ? '<span>' + esc(meta.registration) + '</span>' : '') +
       (meta.flightNo ? '<span>Flight ' + esc(meta.flightNo) + '</span>' : '') +
       (meta.route ? '<span>' + esc(meta.route) + '</span>' : '') +
       (meta.time ? '<span>' + esc(meta.time) + '</span>' : '') + '</div>' : '';
-    var hasLoad = load.luggage !== null || load.paxWeight !== null || load.cargo !== null || load.eic !== null && load.eic !== undefined;
-    var loadHtml = hasLoad ? '<div class="scan-load-grid">' +
-      '<div><b>' + (load.luggage !== null ? f(load.luggage) + ' lb' : '—') + '</b><span>Luggage</span></div>' +
-      '<div><b>' + (load.paxWeight !== null ? f(load.paxWeight) + ' lb' : '—') + '</b><span>Pax weight</span></div>' +
-      '<div><b>' + (load.eic !== null && load.eic !== undefined ? f(load.eic) + ' lb' : load.cargo !== null ? f(load.cargo) + ' lb' : '—') + '</b><span>' + (load.eic !== null && load.eic !== undefined ? 'EIC' : 'Cargo') + '</span></div>' +
-      '</div>' : '';
+    var loadHtml = '<div class="scan-load-editor">' +
+      scanLoadField(load, 'luggage', 'Luggage') +
+      scanLoadField(load, 'paxWeight', 'Printed pax wt') +
+      scanLoadField(load, load.eic !== null && load.eic !== undefined ? 'eic' : 'cargo', load.eic !== null && load.eic !== undefined ? 'EIC' : 'Cargo') +
+      '</div>';
     var evidenceHtml = evidence.ticketRows ? '<p class="scan-evidence">Cross-checked ' + evidence.ticketRows + ' readable ticket rows' +
       (evidence.recoveredRows ? '; restored ' + evidence.recoveredRows + ' faint row from the exact passenger-weight total' : '') +
       (load.paxWeight !== null ? ' · weight total verified' : '') + '.</p>' : '';
     var buttonText = load.luggage !== null ? 'Use passengers &amp; ' + f(load.luggage) + ' lb luggage' : 'Use detected passengers';
     return '<div class="scan-result">' +
-      '<div class="scan-result-head"><div><span class="section-kicker">Detection result</span><h3>' + c.total + ' passengers found</h3></div><span class="confidence ' + (scanResult.ocrConfidence >= 65 ? 'good' : 'review') + '">' + (scanResult.manual ? 'Text parsed' : f(scanResult.ocrConfidence) + '% OCR') + '</span></div>' +
+      '<div class="scan-result-head"><div><span class="section-kicker">Review before importing</span><h3><span id="scanTotal">' + c.total + '</span> passengers</h3></div><span class="confidence ' + (scanResult.ocrConfidence >= 65 ? 'good' : 'review') + '">' + (scanResult.manual ? 'Manual review' : f(scanResult.ocrConfidence) + '% OCR') + '</span></div>' +
       metaHtml +
-      '<div class="count-grid">' +
-        '<div><b>' + c.male + '</b><span>Male</span></div><div><b>' + c.female + '</b><span>Female</span></div><div><b>' + c.child + '</b><span>Child</span></div><div><b>' + c.infant + '</b><span>Infant</span></div><div class="unclear"><b>' + c.unknown + '</b><span>Review</span></div>' +
+      '<p class="scan-edit-hint">Correct any value the scanner got wrong. Passenger names are optional.</p>' +
+      '<div class="count-editor-grid">' +
+        scanCountField(c, 'male', 'Male', 'cat-M') + scanCountField(c, 'female', 'Female', 'cat-F') + scanCountField(c, 'child', 'Child', 'cat-C') + scanCountField(c, 'infant', 'Infant', 'cat-I') + scanCountField(c, 'unknown', 'Unclear', 'need') +
       '</div>' + loadHtml + evidenceHtml + issueHtml +
-      '<button class="btn primary block" data-action="useScan"' + (usable ? '' : ' disabled') + '>' + buttonText + '</button>' +
-      '<p class="muted sm" style="margin-bottom:0">Names and categories remain editable. Imported luggage is placed in Area D initially—redistribute it to the actual compartment before calculation.</p>' +
+      '<button id="useScanBtn" class="btn primary block" data-action="useScan"' + (usable ? '' : ' disabled') + '>' + buttonText + '</button>' +
+      '<p class="muted sm" style="margin-bottom:0">Seats will be balanced automatically. Imported luggage starts in Area D—move it to the actual compartment before calculating.</p>' +
     '</div>';
   }
   function renderScan() {
@@ -254,7 +270,21 @@
       }).join('');
       html += '<div class="seat-row"><span class="rl">' + r + '</span><div class="seats3">' + tiles + '</div></div>';
     }
-    return '<div class="seatmap">' + html + '</div>';
+    return '<div class="cabin-shell"><div class="cabin-direction"><span>Flight deck</span><span>Front</span></div><div class="seatmap">' + html + '</div><div class="cabin-aft">Aft</div></div>';
+  }
+  function renderCategoryEditor() {
+    var counts = categoryCounts();
+    function card(cat, label, weight, cls) {
+      return '<div class="pax-count-card ' + cls + '"><div><b>' + label + '</b><span>' + (weight ? weight + ' lb' : 'Set category') + '</span></div>' +
+        '<div class="step-control"><button data-action="adjustCount" data-cat="' + cat + '" data-delta="-1" aria-label="Remove one ' + label + '">&minus;</button>' +
+        '<input type="number" min="0" max="15" step="1" inputmode="numeric" data-cat-count="' + cat + '" value="' + counts[cat] + '" aria-label="' + label + ' count">' +
+        '<button data-action="adjustCount" data-cat="' + cat + '" data-delta="1" aria-label="Add one ' + label + '">+</button></div></div>';
+    }
+    return '<div class="pax-count-grid">' +
+      card('M', 'Male', CFG.paxWeights.M, 'cat-M') + card('F', 'Female', CFG.paxWeights.F, 'cat-F') +
+      card('C', 'Child', CFG.paxWeights.C, 'cat-C') + card('I', 'Infant', CFG.paxWeights.I, 'cat-I') +
+      (counts['?'] ? card('?', 'Unclear', 0, 'need') : '') +
+      '</div>';
   }
   function renderReview() {
     var c = compute();
@@ -272,15 +302,21 @@
     }).join('');
     return '' +
       '<section class="card">' +
-        '<div class="card-head"><h2>Review &amp; Correction</h2><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' +
-        '<p class="muted sm" style="margin-top:0">Tap a seat to add a passenger; tap again to cycle Male &rarr; Female &rarr; Child &rarr; Infant &rarr; clear.</p>' +
+        '<div class="card-head"><div><span class="section-kicker">Passenger totals</span><h2>Who is travelling?</h2></div><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' +
+        '<p class="muted sm" style="margin-top:0">Enter the totals directly or correct the scan. Names are not required.</p>' +
+        renderCategoryEditor() +
+      '</section>' +
+      '<section class="card seating-card">' +
+        '<div class="card-head"><div><span class="section-kicker">Automatic seating</span><h2>Balanced cabin</h2></div><span class="balance-badge">CG assisted</span></div>' +
+        '<p class="muted sm" style="margin-top:0">The app places passengers for a balanced longitudinal load. Tap any seat to make an operational adjustment.</p>' +
         renderSeatMap() +
         '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">I Infant</span></div>' +
         (c.needReview.length ? '<div class="banner amber sm">' + c.needReview.length + ' seat(s) marked &quot;?&quot; &mdash; tap to set the category before calculating.</div>' : '') +
-        (list ? '<div class="paxlist">' + list + '</div>' : '<p class="muted sm" style="text-align:center;padding:8px">No passengers yet &mdash; tap a seat above.</p>') +
-        (list ? '<button class="btn ghost block" data-action="clearPax">Clear all passengers</button>' : '') +
+        '<button class="btn primary block" data-action="optimizeSeats"' + (state.pax.length && !c.needReview.length ? '' : ' disabled') + '>Balance seats for current load</button>' +
+        (list ? '<details class="acc passenger-details"><summary>Passenger details &amp; individual weights <span>Optional</span></summary><div class="paxlist">' + list + '</div></details>' : '<p class="muted sm" style="text-align:center;padding:8px">Enter passenger totals above or tap a seat to begin.</p>') +
+        (list ? '<button class="btn subtle block" data-action="clearPax">Clear passengers</button>' : '') +
       '</section>' +
-      '<div class="legend sm muted">Standard weights &mdash; M ' + CFG.paxWeights.M + ' / F ' + CFG.paxWeights.F + ' / C ' + CFG.paxWeights.C + ' / I ' + CFG.paxWeights.I + ' lb. Leave a weight blank to use the standard.</div>';
+      '<div class="legend sm muted">Standard weights: M ' + CFG.paxWeights.M + ' / F ' + CFG.paxWeights.F + ' / C ' + CFG.paxWeights.C + ' / I ' + CFG.paxWeights.I + ' lb. The final CG is recalculated after fuel and baggage are entered.</div>';
   }
   function cycleSeat(label) {
     var order = { '?': 'M', 'M': 'F', 'F': 'C', 'C': 'I', 'I': null };
@@ -293,6 +329,49 @@
       if (nxt === null) state.pax.splice(idx, 1); else state.pax[idx].cat = nxt;
     }
     render();
+  }
+  function setCategoryCount(cat, requested) {
+    if (!CAT_LABEL.hasOwnProperty(cat)) return;
+    var target = Math.max(0, Math.min(15, Math.floor(num(requested))));
+    var current = state.pax.filter(function (passenger) { return passenger.cat === cat; }).length;
+    var other = state.pax.length - current;
+    if (target + other > 15) {
+      target = 15 - other;
+      toast('The cabin is limited to 15 passenger seats.');
+    }
+    if (target < current) {
+      var remove = current - target;
+      for (var i = state.pax.length - 1; i >= 0 && remove > 0; i--) {
+        if (state.pax[i].cat === cat) { state.pax.splice(i, 1); remove--; }
+      }
+    } else {
+      for (var add = current; add < target; add++) state.pax.push({ id: uid(), name: '', cat: cat, seat: '' });
+    }
+    arrangeSeats(true);
+  }
+  function centerOutArrangement() {
+    var order = ['3B','3A','3C','2B','4B','2A','2C','4A','4C','1B','5B','1A','1C','5A','5C'];
+    state.pax.forEach(function (passenger, index) { passenger.seat = order[index] || ''; });
+  }
+  function arrangeSeats(silent) {
+    if (!state.pax.length) { if (!silent) toast('Enter passenger totals first.'); render(); return false; }
+    if (state.pax.some(function (passenger) { return !isCat(passenger.cat); })) {
+      centerOutArrangement();
+      if (!silent) toast('Set every unclear category before CG optimization.');
+      render(); return false;
+    }
+    var result = SEATING.optimize(state.pax, engineInput(), CFG, ENG);
+    if (!result.changed) {
+      centerOutArrangement();
+      if (!silent) toast(result.reason || 'Seats could not be balanced.');
+      render(); return false;
+    }
+    state.pax = result.passengers.sort(function (a, b) { return SEATS.indexOf(a.seat) - SEATS.indexOf(b.seat); });
+    if (!silent) {
+      var mac = result.metrics && result.metrics.to ? f(result.metrics.to.mac, 1) + '% MAC' : 'the current load';
+      toast('Seats balanced for ' + mac + '. Verify any operational seating restrictions.');
+    }
+    render(); return true;
   }
   function clearPax() { if (!state.pax.length) return; if (!confirm('Remove all passengers?')) return; state.pax = []; render(); }
 
@@ -320,6 +399,7 @@
         '</div>' +
       '</section>' +
       '<section class="card"><h2>Remarks</h2><textarea data-bind="flight.remarks" placeholder="Special loads, dangerous goods, notes (appears on the load sheet)">' + esc(state.flight.remarks) + '</textarea></section>' +
+      '<section class="card optimize-panel"><div><span class="section-kicker">Final seating check</span><h2>Balance with the complete load</h2><p class="muted sm">Now that fuel and baggage are entered, run the seating optimizer again for the best available CG.</p></div><button class="btn primary block" data-action="optimizeSeats"' + (state.pax.length ? '' : ' disabled') + '>Optimize passenger seats</button></section>' +
       liveSummary();
   }
   function liveSummary() {
@@ -615,7 +695,9 @@
 
   function applyScan(c) {
     var list = [], i;
-    if (!c || !c.total) return toast('No passengers were detected. Enter them manually or try another scan.');
+    if (!c) return toast('No passengers were detected. Enter them manually or try another scan.');
+    c.total = scanPassengerTotal(c);
+    if (!c.total) return toast('No passengers were detected. Enter them manually or try another scan.');
     if (c.total > 15) return toast('Detected count exceeds the 15-seat cabin. Check the manifest text before continuing.');
     if (Array.isArray(c.passengers) && c.passengers.length === c.total) {
       list = c.passengers.map(function (passenger) { return passenger.cat || '?'; });
@@ -629,7 +711,7 @@
     if (list.length > 15) return toast('Passenger categories exceed the 15-seat cabin. Review the detected text.');
     state.pax = list.map(function (cat, idx) {
       var detected = c.passengers && c.passengers[idx];
-      return { id: uid(), name: detected && detected.name ? detected.name : 'Pax ' + (idx + 1), cat: cat, seat: SEATS[idx] };
+      return { id: uid(), name: detected && detected.name ? detected.name : '', cat: cat, seat: '' };
     });
     if (c.load) {
       if (c.load.luggage !== null || c.load.cargo !== null) state.cargo.bagD = (c.load.luggage || 0) + (c.load.cargo || 0);
@@ -641,7 +723,8 @@
       if (c.meta.flightNo) state.flight.no = c.meta.flightNo;
       if (c.meta.route) state.flight.route = c.meta.route;
     }
-    toast('Loaded ' + list.length + ' passengers' + (c.load && c.load.luggage !== null ? ' and ' + f(c.load.luggage) + ' lb luggage' : '') +
+    arrangeSeats(true);
+    toast('Loaded and balanced ' + list.length + ' passengers' + (c.load && c.load.luggage !== null ? ' with ' + f(c.load.luggage) + ' lb luggage' : '') +
       (c.load && c.load.eic > 0 ? '. EIC was not assigned—enter it at the approved station.' : '. Review the seats and baggage station.'));
     go(2);
   }
@@ -657,7 +740,7 @@
     if (!c.canPrintDraft) return toast('Correct all red issues before printing.');
     var m = c.m, s = statusWord(c.level, c.complete), now = new Date().toLocaleString();
     function rows(title, arr) { return '<div class="ps-sec"><h3>' + title + '</h3>' + arr.map(function (r) { return '<div class="ps-row"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>'; }).join('') + '</div>'; }
-    var paxRows = state.pax.map(function (p) { return '<div class="ps-row"><span>' + esc(p.name) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(p.seat || '—') + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
+    var paxRows = state.pax.map(function (p, index) { return '<div class="ps-row"><span>' + esc(p.name || ('Passenger ' + (index + 1))) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(p.seat || '—') + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
     $('printSheet').innerHTML =
       (!CFG.meta.verified ? '<div class="ps-watermark">UNVERIFIED · REVIEW DRAFT · NOT FOR OPERATIONAL USE</div>' : '') +
       '<div class="ps-head"><div><div class="ps-title">DHC-6 CG / ' + (CFG.meta.verified ? 'LOAD SHEET' : 'REVIEW DRAFT') + '</div><div class="ps-sub">Weight &amp; Balance Summary</div></div>' +
@@ -696,6 +779,27 @@
   /* ---------- events ---------- */
   function onInput(e) {
     var el = e.target, bind = el.getAttribute && el.getAttribute('data-bind');
+    var scanBind = el.getAttribute && el.getAttribute('data-scan-bind');
+    var scanLoadBind = el.getAttribute && el.getAttribute('data-scan-load-bind');
+    if (scanResult && scanBind) {
+      var counts = scanResult.counts, previous = Math.max(0, Math.floor(num(counts[scanBind]))), next = Math.max(0, Math.min(15, Math.floor(num(el.value))));
+      counts[scanBind] = next;
+      if (scanBind !== 'unknown' && next > previous && counts.unknown > 0) counts.unknown = Math.max(0, counts.unknown - (next - previous));
+      counts.total = scanPassengerTotal(counts);
+      counts.passengers = undefined;
+      scanResult.manual = true;
+      var totalEl = $('scanTotal'); if (totalEl) totalEl.textContent = counts.total;
+      var unknownInput = document.querySelector('[data-scan-bind="unknown"]'); if (unknownInput && scanBind !== 'unknown') unknownInput.value = counts.unknown;
+      var useButton = $('useScanBtn');
+      if (useButton) useButton.disabled = !(counts.total > 0 && counts.total <= 15);
+      return;
+    }
+    if (scanResult && scanLoadBind) {
+      scanResult.counts.load = scanResult.counts.load || {};
+      scanResult.counts.load[scanLoadBind] = String(el.value).trim() === '' ? null : Math.max(0, num(el.value));
+      scanResult.manual = true;
+      return;
+    }
     if (!bind) return;
     setBind(bind, coerce(el, el.value));
     if (el.hasAttribute('data-rerender')) { render(); return; }
@@ -719,6 +823,8 @@
       case 'parseOcrText': parseOcrText(); break;
       case 'useScan': if (scanResult) applyScan(scanResult.counts); break;
       case 'cycleSeat': cycleSeat(t.getAttribute('data-seat')); break;
+      case 'adjustCount': var cc = categoryCounts(), cat = t.getAttribute('data-cat'); setCategoryCount(cat, cc[cat] + num(t.getAttribute('data-delta'))); break;
+      case 'optimizeSeats': arrangeSeats(false); break;
       case 'clearPax': clearPax(); break;
       case 'delPax': delPax(+i); break;
       case 'savePreset': doSavePreset(); break;
@@ -727,11 +833,15 @@
       case 'newFlight': newFlight(); break;
     }
   }
-  function onChange(e) { var el = e.target; if (el.matches && el.matches('[data-action="loadPreset"]')) { if (el.value) doLoadPreset(el.value); } }
+  function onChange(e) {
+    var el = e.target;
+    if (el.matches && el.matches('[data-action="loadPreset"]')) { if (el.value) doLoadPreset(el.value); return; }
+    if (el.hasAttribute && el.hasAttribute('data-cat-count')) setCategoryCount(el.getAttribute('data-cat-count'), el.value);
+  }
 
   /* ---------- init ---------- */
   function init() {
-    if (!CFG || !ENG || !PARSE) { document.body.innerHTML = '<p style="padding:20px">Failed to load the calculator. Refresh the page and try again.</p>'; return; }
+    if (!CFG || !ENG || !PARSE || !SEATING) { document.body.innerHTML = '<p style="padding:20px">Failed to load the calculator. Refresh the page and try again.</p>'; return; }
     load();
     var v = $('view');
     v.addEventListener('input', onInput);

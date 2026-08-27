@@ -1,10 +1,11 @@
-const CACHE_NAME = 'dhc6-load-balance-v10';
-const APP_VERSION = '20260827.4';
+const CACHE_NAME = 'dhc6-load-balance-v11';
+const APP_VERSION = '20260827.5';
 const CORE_ASSETS = [
   './',
   './index.html',
   './config.js?v=' + APP_VERSION,
   './engine.js?v=' + APP_VERSION,
+  './seating.js?v=' + APP_VERSION,
   './parsers.js?v=' + APP_VERSION,
   './app.js?v=' + APP_VERSION,
   './manifest.webmanifest',
@@ -54,7 +55,7 @@ self.addEventListener('fetch', function (event) {
 
   // Application code is network-first so a new OCR/parser release cannot be
   // mixed with an older cached file. Large, pinned OCR assets stay cache-first.
-  if (/\/(?:config|engine|parsers|app)\.js$/.test(url.pathname) || /\/tesseract\.min\.js$/.test(url.pathname)) {
+  if (/\/(?:config|engine|seating|parsers|app)\.js$/.test(url.pathname) || /\/tesseract\.min\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(new Request(event.request, { cache: 'reload' }))
         .then(function (response) {

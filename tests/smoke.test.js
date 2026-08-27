@@ -27,7 +27,7 @@ const errors = [];
 window.addEventListener('error', e => errors.push(e.error || e.message));
 
 // run the app's scripts in page order, in the window realm
-['config.js', 'engine.js', 'parsers.js', 'app.js'].forEach(f => window.eval(read(f)));
+['config.js', 'engine.js', 'seating.js', 'parsers.js', 'app.js'].forEach(f => window.eval(read(f)));
 // jsdom outside-only keeps readyState 'loading', so fire the ready event the app waits on
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
@@ -62,10 +62,22 @@ test('scan step offers both camera and upload, and runs safely with no file', ()
   click(actionBtn('runOcr'));   // no file selected -> message only, no crash
 });
 
+test('detected passenger categories and load values are editable', () => {
+  setVal($('ocrText'), 'TOTAL PAX 10\nMALE 3\nFEMALE 7\nLUGGAGE 489');
+  click(actionBtn('parseOcrText'));
+  const male = q('[data-scan-bind="male"]');
+  const female = q('[data-scan-bind="female"]');
+  if (!male || !female || !q('[data-scan-load-bind="luggage"]')) throw new Error('editable scan fields missing');
+  setVal(male, '2');
+  if ($('scanTotal').textContent !== '9') throw new Error('edited categories did not update total');
+  if (actionBtn('useScan').disabled) throw new Error('valid edited scan cannot be imported');
+});
+
 test('review step has a tappable seat map', () => {
   click(actionBtn('goReview'));   // scan -> review
-  if (!/Review/.test($('view').innerHTML)) throw new Error('not on review step');
+  if (!/Who is travelling\?|Balanced cabin/.test($('view').innerHTML)) throw new Error('not on seating step');
   if (!q('[data-action="cycleSeat"]')) throw new Error('no seat map');
+  if (!q('[data-cat-count="M"]') || !actionBtn('optimizeSeats')) throw new Error('manual totals or optimizer missing');
 });
 
 test('tapping a seat adds a passenger and cycles its category', () => {
@@ -77,6 +89,13 @@ test('tapping a seat adds a passenger and cycles its category', () => {
   if (!/\bcat-F\b/.test($('view').innerHTML)) throw new Error('did not cycle to Female');
   click(seat('2B'));   // add a second passenger
   if (!q('[data-bind="pax.0.weight"]')) throw new Error('no weight input in list');
+});
+
+test('seat optimizer action keeps every passenger in a unique seat', () => {
+  click(actionBtn('optimizeSeats'));
+  const occupied = qa('.seat-tile:not(.empty)');
+  if (occupied.length !== 2) throw new Error('optimizer lost or duplicated a passenger');
+  if (new Set(occupied.map(el => el.getAttribute('data-seat'))).size !== 2) throw new Error('optimizer reused a seat');
 });
 
 test('per-passenger weight override works', () => {
