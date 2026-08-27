@@ -109,4 +109,34 @@ test('infants remain a separate category', () => {
   assert.strictEqual(c.total, 2);
 });
 
+test('resort manifest table uses ticket rows and weight totals to recover the full load', () => {
+  const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
+  const word = (x, y, text, conf = 95) => `5\t1\t1\t1\t1\t1\t${x}\t${y}\t50\t14\t${conf}\t${text}`;
+  const lines = [header, word(850, 250, '8Q-IAL'), word(1050, 250, 'Q2-7022')];
+  const names = ['NATALIA','ELENA','OLESIA','NATALIA','ANASTASIIA','ELENA','ALEKSANDR','SHUBAM','SARIKA','SURESH','KHUSHI','NIRMIT','ANUPAMA','SUMMIT'];
+  const categories = ['F','F','F','F','F','F','M','M','F','M','F','M','F','M'];
+  for (let i = 0; i < 14; i++) {
+    const y = 388 + i * 40;
+    lines.push(word(410, y, String(612941 + i)));
+    lines.push(word(550, y, names[i]));
+    // Reproduce the real photo: one female weight loses its leading 1 and two
+    // male row weights are unreadable. The summary still provides a safe check.
+    if (i === 4) lines.push(word(1585, y + 8, '50', 40));
+    else if (i !== 11 && i !== 13) lines.push(word(1585, y + 8, String(cfg.paxWeights[categories[i]])));
+  }
+  lines.push(word(1580, 1060, '489'));
+  lines.push(word(1745, 1060, '2295'));
+
+  const c = parsers.parseManifestScan('', lines.join('\n'), 1950, 2600, cfg.paxWeights);
+  assert.strictEqual(c.total, 14);
+  assert.strictEqual(c.male, 5);
+  assert.strictEqual(c.female, 9);
+  assert.strictEqual(c.unknown, 0);
+  assert.strictEqual(c.load.luggage, 489);
+  assert.strictEqual(c.load.paxWeight, 2295);
+  assert.strictEqual(c.passengers.length, 14);
+  assert.ok(c.passengers.every(p => p.cat === 'M' || p.cat === 'F'));
+  assert.strictEqual(c.meta.flightNo, 'Q2-7022');
+});
+
 console.log(`\n${passed} passed` + (process.exitCode ? ', with failures' : ''));

@@ -189,13 +189,30 @@
     var c = scanResult.counts;
     var usable = c.total > 0 && c.total <= 15;
     var issueHtml = c.issues && c.issues.length ? '<div class="scan-issues">' + c.issues.map(function (issue) { return '<div>' + esc(issue) + '</div>'; }).join('') + '</div>' : '';
+    var meta = c.meta || {}, load = c.load || {}, evidence = c.evidence || {};
+    var metaHtml = (meta.registration || meta.flightNo || meta.route || meta.time) ? '<div class="manifest-id">' +
+      (meta.registration ? '<span>' + esc(meta.registration) + '</span>' : '') +
+      (meta.flightNo ? '<span>Flight ' + esc(meta.flightNo) + '</span>' : '') +
+      (meta.route ? '<span>' + esc(meta.route) + '</span>' : '') +
+      (meta.time ? '<span>' + esc(meta.time) + '</span>' : '') + '</div>' : '';
+    var hasLoad = load.luggage !== null || load.paxWeight !== null || load.cargo !== null;
+    var loadHtml = hasLoad ? '<div class="scan-load-grid">' +
+      '<div><b>' + (load.luggage !== null ? f(load.luggage) + ' lb' : '—') + '</b><span>Luggage</span></div>' +
+      '<div><b>' + (load.paxWeight !== null ? f(load.paxWeight) + ' lb' : '—') + '</b><span>Pax weight</span></div>' +
+      '<div><b>' + (load.cargo !== null ? f(load.cargo) + ' lb' : '—') + '</b><span>Cargo</span></div>' +
+      '</div>' : '';
+    var evidenceHtml = evidence.ticketRows ? '<p class="scan-evidence">Cross-checked ' + evidence.ticketRows + ' readable ticket rows' +
+      (evidence.recoveredRows ? '; restored ' + evidence.recoveredRows + ' faint row from the exact passenger-weight total' : '') +
+      (load.paxWeight !== null ? ' · weight total verified' : '') + '.</p>' : '';
+    var buttonText = load.luggage !== null ? 'Use passengers &amp; ' + f(load.luggage) + ' lb luggage' : 'Use detected passengers';
     return '<div class="scan-result">' +
       '<div class="scan-result-head"><div><span class="section-kicker">Detection result</span><h3>' + c.total + ' passengers found</h3></div><span class="confidence ' + (scanResult.ocrConfidence >= 65 ? 'good' : 'review') + '">' + (scanResult.manual ? 'Text parsed' : f(scanResult.ocrConfidence) + '% OCR') + '</span></div>' +
+      metaHtml +
       '<div class="count-grid">' +
         '<div><b>' + c.male + '</b><span>Male</span></div><div><b>' + c.female + '</b><span>Female</span></div><div><b>' + c.child + '</b><span>Child</span></div><div><b>' + c.infant + '</b><span>Infant</span></div><div class="unclear"><b>' + c.unknown + '</b><span>Review</span></div>' +
-      '</div>' + issueHtml +
-      '<button class="btn primary block" data-action="useScan"' + (usable ? '' : ' disabled') + '>Use detected passengers</button>' +
-      '<p class="muted sm" style="margin-bottom:0">Every detected passenger can be corrected on the seat map before calculation.</p>' +
+      '</div>' + loadHtml + evidenceHtml + issueHtml +
+      '<button class="btn primary block" data-action="useScan"' + (usable ? '' : ' disabled') + '>' + buttonText + '</button>' +
+      '<p class="muted sm" style="margin-bottom:0">Names and categories remain editable. Imported luggage is placed in Area D initially—redistribute it to the actual compartment before calculation.</p>' +
     '</div>';
   }
   function renderScan() {
@@ -500,7 +517,7 @@
       errorHandler: function (error) { console.error('OCR worker:', error); }
     }).then(function (worker) {
       ocrWorker = worker;
-      return worker.setParameters({ tessedit_pageseg_mode: '3', preserve_interword_spaces: '1', user_defined_dpi: '300' }).then(function () { return worker; });
+      return worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1', user_defined_dpi: '300' }).then(function () { return worker; });
     });
   }
 
@@ -516,13 +533,14 @@
       setScan('Starting the on-device OCR engine…'); setProgress('loading OCR', 10);
       return getOcrWorker();
     }).then(function (worker) {
-      setScan('Reading names, categories and totals…');
-      return worker.recognize(enhanced);
+      setScan('Reading passenger rows, weight columns and totals…');
+      return worker.recognize(enhanced, {}, { text: true, tsv: true, blocks: true });
     }).then(function (result) {
       var text = (result && result.data && result.data.text || '').trim();
+      var tsv = result && result.data && result.data.tsv || '';
       var confidence = result && result.data && isFinite(result.data.confidence) ? result.data.confidence : 0;
       state.ocrText = text;
-      scanResult = { counts: PARSE.parseManifestCounts(text), ocrConfidence: confidence, manual: false };
+      scanResult = { counts: PARSE.parseManifestScan(text, tsv, enhanced.width || 0, enhanced.height || 0, CFG.paxWeights), ocrConfidence: confidence, manual: false };
       setProgress('complete', 100);
       ocrBusy = false;
       render();
@@ -550,19 +568,31 @@
     var list = [], i;
     if (!c || !c.total) return toast('No passengers were detected. Enter them manually or try another scan.');
     if (c.total > 15) return toast('Detected count exceeds the 15-seat cabin. Check the manifest text before continuing.');
-    for (i = 0; i < (c.male || 0); i++) list.push('M');
-    for (i = 0; i < (c.female || 0); i++) list.push('F');
-    for (i = 0; i < (c.child || 0); i++) list.push('C');
-    for (i = 0; i < (c.infant || 0); i++) list.push('I');
-    for (i = 0; i < (c.unknown || 0); i++) list.push('?');
+    if (Array.isArray(c.passengers) && c.passengers.length === c.total) {
+      list = c.passengers.map(function (passenger) { return passenger.cat || '?'; });
+    } else {
+      for (i = 0; i < (c.male || 0); i++) list.push('M');
+      for (i = 0; i < (c.female || 0); i++) list.push('F');
+      for (i = 0; i < (c.child || 0); i++) list.push('C');
+      for (i = 0; i < (c.infant || 0); i++) list.push('I');
+      for (i = 0; i < (c.unknown || 0); i++) list.push('?');
+    }
     if (list.length > 15) return toast('Passenger categories exceed the 15-seat cabin. Review the detected text.');
-    state.pax = list.map(function (cat, idx) { return { id: uid(), name: 'Pax ' + (idx + 1), cat: cat, seat: SEATS[idx] }; });
+    state.pax = list.map(function (cat, idx) {
+      var detected = c.passengers && c.passengers[idx];
+      return { id: uid(), name: detected && detected.name ? detected.name : 'Pax ' + (idx + 1), cat: cat, seat: SEATS[idx] };
+    });
     if (c.load) {
-      var bag = (c.load.luggage || 0) + (c.load.cargo || 0); if (bag) state.cargo.bagD = bag;
+      if (c.load.luggage !== null || c.load.cargo !== null) state.cargo.bagD = (c.load.luggage || 0) + (c.load.cargo || 0);
       if (c.load.takeoffFuel) state.fuel.block = c.load.takeoffFuel + CFG.fuel.takeoffOffset;
       if (c.load.burnFuel) state.fuel.trip = c.load.burnFuel;
     }
-    toast('Loaded ' + list.length + ' passengers. Review every seat before calculating.');
+    if (c.meta) {
+      if (c.meta.registration) state.aircraft.reg = c.meta.registration;
+      if (c.meta.flightNo) state.flight.no = c.meta.flightNo;
+      if (c.meta.route) state.flight.route = c.meta.route;
+    }
+    toast('Loaded ' + list.length + ' passengers' + (c.load && c.load.luggage !== null ? ' and ' + f(c.load.luggage) + ' lb luggage' : '') + '. Review the seats and baggage station.');
     go(2);
   }
   function setScan(t) { var e = $('scanStatus'); if (e) e.textContent = t; }

@@ -25,9 +25,11 @@ passenger and seat review → cargo and fuel → CG results and review sheet.
 
 `app.js` collects the loading (aircraft, passengers with seat assignments,
 cargo, fuel) and calls `WBEngine.computeMetrics(input, DHC6_CONFIG)`. OCR text
-is parsed by `WBParsers`; nothing is silently accepted. The scan shows detected
-category totals before applying them, unclear passengers are flagged for review,
-and counts above the 15-seat capacity are blocked.
+is parsed by `WBParsers`; nothing is silently accepted. Structured resort
+manifests are rebuilt from OCR word positions so the app can read passenger
+names, ticket rows, passenger weights and luggage totals. Category totals are
+cross-checked against the printed passenger-weight total before applying them;
+unclear passengers are flagged and counts above the 15-seat capacity are blocked.
 
 OCR assets are self-hosted and included in the service-worker cache. Passenger
 manifest images never leave the device. Raw OCR text is not persisted, and the

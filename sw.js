@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dhc6-load-balance-v7';
+const CACHE_NAME = 'dhc6-load-balance-v8';
 const CORE_ASSETS = [
   './',
   './index.html',
