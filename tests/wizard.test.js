@@ -139,4 +139,35 @@ test('resort manifest table uses ticket rows and weight totals to recover the fu
   assert.strictEqual(c.meta.flightNo, 'Q2-7022');
 });
 
+test('base passenger manifest reads its narrow count and gender summary columns', () => {
+  const main = `Passenger Manifest\nTime Aircraft Route Flight No\n13:30 8Q-ISA MLE-MLE Q2-6000\nNumber of Passengers\nTotal Males\nTotal Females\nTotal Children\nTotal Infants`;
+  const summary = `MLE\n3\n0\n0\n0\n0\n0\n567.00\n3\n567.00\n30.00\n597.00`;
+  const categories = `Total Males 3\nTotal Females 0\nTotal Children 0\nTotal Infants 0`;
+  const table = `1 GOV 615675 TAPUGAO/FALEFOU Mr / M MALE MLE MLE\n2 GOV 615676 NUAUSALA/NUAUSALA M MALE MLE MLE\n3 GOV 615677 NELESONE/PANAPASI Mr / M MALE MLE MLE`;
+  const c = parsers.parseManifestScan(main, '', 1950, 2600, cfg.paxWeights, { summary, categories, table });
+  assert.strictEqual(c.documentType, 'base-passenger');
+  assert.strictEqual(c.total, 3);
+  assert.strictEqual(c.male, 3);
+  assert.strictEqual(c.unknown, 0);
+  assert.strictEqual(c.load.luggage, 0);
+  assert.strictEqual(c.load.paxWeight, 567);
+  assert.strictEqual(c.load.eic, 30);
+  assert.strictEqual(c.meta.registration, '8Q-ISA');
+  assert.strictEqual(c.meta.flightNo, 'Q2-6000');
+  assert.deepStrictEqual(c.passengers.map(p => p.name), ['TAPUGAO/FALEFOU', 'NUAUSALA/NUAUSALA', 'NELESONE/PANAPASI']);
+  assert.ok(c.issues.some(issue => /EIC/.test(issue)));
+});
+
+test('empty base baggage manifest is never counted as a passenger', () => {
+  const text = `Baggage Manifest\nRoute MLE-MLE\nAircraft 8Q-ISA\nFlight No 6000\nTotal Luggages Count / Weight: 07 / 0\nTotal Hand Luggages Count / Weight: 0 / 0\nTotal OCS Count / Weight: 0 / 0\nTotal Bumped Baggages Count / Weight: 0 / 0`;
+  const c = parsers.parseManifestScan(text, '', 1950, 2600, cfg.paxWeights);
+  assert.strictEqual(c.documentType, 'base-baggage');
+  assert.strictEqual(c.total, 0);
+  assert.strictEqual(c.load.luggage, 0);
+  assert.strictEqual(c.load.handCount, 0);
+  assert.strictEqual(c.load.ocsWeight, 0);
+  assert.strictEqual(c.meta.registration, '8Q-ISA');
+  assert.strictEqual(c.meta.flightNo, '6000');
+});
+
 console.log(`\n${passed} passed` + (process.exitCode ? ', with failures' : ''));

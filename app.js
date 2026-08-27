@@ -195,11 +195,11 @@
       (meta.flightNo ? '<span>Flight ' + esc(meta.flightNo) + '</span>' : '') +
       (meta.route ? '<span>' + esc(meta.route) + '</span>' : '') +
       (meta.time ? '<span>' + esc(meta.time) + '</span>' : '') + '</div>' : '';
-    var hasLoad = load.luggage !== null || load.paxWeight !== null || load.cargo !== null;
+    var hasLoad = load.luggage !== null || load.paxWeight !== null || load.cargo !== null || load.eic !== null && load.eic !== undefined;
     var loadHtml = hasLoad ? '<div class="scan-load-grid">' +
       '<div><b>' + (load.luggage !== null ? f(load.luggage) + ' lb' : '—') + '</b><span>Luggage</span></div>' +
       '<div><b>' + (load.paxWeight !== null ? f(load.paxWeight) + ' lb' : '—') + '</b><span>Pax weight</span></div>' +
-      '<div><b>' + (load.cargo !== null ? f(load.cargo) + ' lb' : '—') + '</b><span>Cargo</span></div>' +
+      '<div><b>' + (load.eic !== null && load.eic !== undefined ? f(load.eic) + ' lb' : load.cargo !== null ? f(load.cargo) + ' lb' : '—') + '</b><span>' + (load.eic !== null && load.eic !== undefined ? 'EIC' : 'Cargo') + '</span></div>' +
       '</div>' : '';
     var evidenceHtml = evidence.ticketRows ? '<p class="scan-evidence">Cross-checked ' + evidence.ticketRows + ' readable ticket rows' +
       (evidence.recoveredRows ? '; restored ' + evidence.recoveredRows + ' faint row from the exact passenger-weight total' : '') +
@@ -216,19 +216,21 @@
     '</div>';
   }
   function renderScan() {
-    var preview = selectedPreviewUrl ? '<img class="scan-preview" src="' + esc(selectedPreviewUrl) + '" alt="Selected manifest preview">' : '<div class="upload-icon"><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></div>';
+    var preview = selectedPreviewUrls.length ? '<img class="scan-preview" src="' + esc(selectedPreviewUrls[0]) + '" alt="Selected manifest preview">' : '<div class="upload-icon"><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></div>';
+    var selectedNames = selectedFiles.map(function (file) { return file.name; }).join(' + ');
+    var selectedSize = selectedFiles.reduce(function (sum, file) { return sum + file.size; }, 0);
     return '' +
       '<section class="card">' +
-        '<div class="section-title"><div><span class="section-kicker">On-device OCR</span><h2>Scan passenger manifest</h2></div><span class="privacy-pill">Private · OCR v3</span></div>' +
-        '<p class="muted sm">Use a straight, well-lit photo with the full passenger list visible. The image is processed on this device and is never uploaded.</p>' +
-        '<div class="dropzone ' + (selectedFile ? 'has-file' : '') + '">' + preview + '<div><b id="fileName">' + esc(selectedFile ? selectedFile.name : 'Choose a manifest image') + '</b><span>' + (selectedFile ? f(selectedFile.size / 1024) + ' KB · ready to scan' : 'JPG, PNG or a camera photo') + '</span></div></div>' +
+        '<div class="section-title"><div><span class="section-kicker">On-device OCR</span><h2>Scan flight manifests</h2></div><span class="privacy-pill">Private · OCR v4</span></div>' +
+        '<p class="muted sm">Choose the passenger manifest, or select the passenger and baggage manifests together. Use straight, well-lit photos with the full sheets visible.</p>' +
+        '<div class="dropzone ' + (selectedFiles.length ? 'has-file' : '') + '">' + preview + '<div><b id="fileName">' + esc(selectedFiles.length ? selectedNames : 'Choose manifest image(s)') + '</b><span>' + (selectedFiles.length ? selectedFiles.length + ' document' + (selectedFiles.length > 1 ? 's' : '') + ' · ' + f(selectedSize / 1024) + ' KB · ready' : 'Passenger manifest, plus optional baggage manifest') + '</span></div></div>' +
         '<div class="grid-2">' +
           '<button class="btn ghost" data-action="takePhoto"><svg viewBox="0 0 24 24" class="i"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>Take photo</button>' +
           '<button class="btn ghost" data-action="chooseFile"><svg viewBox="0 0 24 24" class="i"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>Choose image</button>' +
         '</div>' +
         '<input id="camInput" type="file" accept="image/*" capture="environment" hidden>' +
-        '<input id="fileInput" type="file" accept="image/*" hidden>' +
-        '<button id="scanBtn" class="btn primary block" data-action="runOcr"' + (selectedFile ? '' : ' disabled') + '>Scan document</button>' +
+        '<input id="fileInput" type="file" accept="image/*" multiple hidden>' +
+        '<button id="scanBtn" class="btn primary block" data-action="runOcr"' + (selectedFiles.length ? '' : ' disabled') + '>Scan ' + (selectedFiles.length > 1 ? 'documents' : 'document') + '</button>' +
         '<div class="ocr-progress"><div id="scanBar" class="progress-bar"><span></span></div><p id="scanStatus" class="muted sm">OCR engine is stored with the app and works offline.</p><div id="scanProgress" class="progress"></div></div>' +
         renderScanResult() +
         '<details class="acc"><summary>Recognized text · inspect or paste manually</summary><textarea id="ocrText" data-bind="ocrText" aria-label="Recognized manifest text" placeholder="OCR text appears here. You can also paste manifest text manually.">' + esc(state.ocrText) + '</textarea><button class="btn ghost block parse-text" data-action="parseOcrText">Parse this text</button></details>' +
@@ -438,22 +440,22 @@
   function delPax(i) { state.pax.splice(i, 1); render(); }
 
   /* ---------- OCR ---------- */
-  var selectedFile = null, selectedPreviewUrl = '', scanResult = null, ocrWorker = null, ocrBusy = false;
+  var selectedFiles = [], selectedPreviewUrls = [], scanResult = null, ocrWorker = null, ocrBusy = false;
   function clearSelectedFile() {
-    if (selectedPreviewUrl) try { URL.revokeObjectURL(selectedPreviewUrl); } catch (e) {}
-    selectedFile = null; selectedPreviewUrl = ''; scanResult = null; state.ocrText = '';
+    selectedPreviewUrls.forEach(function (url) { try { URL.revokeObjectURL(url); } catch (e) {} });
+    selectedFiles = []; selectedPreviewUrls = []; scanResult = null; state.ocrText = '';
   }
   function wireScanInputs() {
     ['camInput', 'fileInput'].forEach(function (id) {
       var inp = $(id);
       if (inp) inp.onchange = function () {
         if (inp.files && inp.files[0]) {
-          var file = inp.files[0];
-          if (!/^image\//.test(file.type || '')) return toast('Choose a JPG, PNG or camera image.');
-          if (file.size > 20 * 1024 * 1024) return toast('Image is too large. Choose one under 20 MB.');
-          if (selectedPreviewUrl) try { URL.revokeObjectURL(selectedPreviewUrl); } catch (e) {}
-          selectedFile = file;
-          selectedPreviewUrl = URL.createObjectURL(file);
+          var files = Array.prototype.slice.call(inp.files, 0, 2);
+          if (files.some(function (file) { return !/^image\//.test(file.type || ''); })) return toast('Choose JPG, PNG or camera images.');
+          if (files.some(function (file) { return file.size > 20 * 1024 * 1024; })) return toast('Each image must be under 20 MB.');
+          selectedPreviewUrls.forEach(function (url) { try { URL.revokeObjectURL(url); } catch (e) {} });
+          selectedFiles = files;
+          selectedPreviewUrls = files.map(function (file) { return URL.createObjectURL(file); });
           scanResult = null; state.ocrText = '';
           render();
         }
@@ -495,7 +497,10 @@
           resolve(cv);
         };
         img.onerror = function () { resolve(file); };
-        img.src = selectedPreviewUrl || URL.createObjectURL(file);
+        var objectUrl = URL.createObjectURL(file);
+        img.onload = (function (original) { return function () { URL.revokeObjectURL(objectUrl); original(); }; })(img.onload);
+        img.onerror = (function (original) { return function () { URL.revokeObjectURL(objectUrl); original(); }; })(img.onerror);
+        img.src = objectUrl;
       } catch (e) { resolve(file); }
     });
   }
@@ -522,30 +527,74 @@
   }
 
   function runOcr() {
-    if (!selectedFile) { setScan('Choose a manifest image first.'); return; }
+    if (!selectedFiles.length) { setScan('Choose a manifest image first.'); return; }
     if (ocrBusy) return;
     ocrBusy = true; scanResult = null;
     var button = $('scanBtn'); if (button) button.disabled = true;
-    setScan('Enhancing the image for clearer text…'); setProgress('preparing image', 5);
-    var enhanced;
-    preprocessImage(selectedFile).then(function (src) {
-      enhanced = src;
-      setScan('Starting the on-device OCR engine…'); setProgress('loading OCR', 10);
-      return getOcrWorker();
-    }).then(function (worker) {
-      setScan('Reading passenger rows, weight columns and totals…');
-      return worker.recognize(enhanced, {}, { text: true, tsv: true, blocks: true });
-    }).then(function (result) {
-      var text = (result && result.data && result.data.text || '').trim();
-      var tsv = result && result.data && result.data.tsv || '';
-      var confidence = result && result.data && isFinite(result.data.confidence) ? result.data.confidence : 0;
-      state.ocrText = text;
-      scanResult = { counts: PARSE.parseManifestScan(text, tsv, enhanced.width || 0, enhanced.height || 0, CFG.paxWeights), ocrConfidence: confidence, manual: false };
+    setScan('Enhancing the manifest image…'); setProgress('preparing image', 5);
+
+    function crop(source, x, y, w, h, scale) {
+      var cv = document.createElement('canvas'); cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+      var ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(source, Math.round(x), Math.round(y), Math.round(w), Math.round(h), 0, 0, cv.width, cv.height);
+      return cv;
+    }
+    function recognizeOne(file, index) {
+      var enhanced, worker, main;
+      setScan('Reading document ' + (index + 1) + ' of ' + selectedFiles.length + '…');
+      return preprocessImage(file).then(function (src) { enhanced = src; return getOcrWorker(); }).then(function (w) {
+        worker = w; return worker.setParameters({ tessedit_pageseg_mode: '11' });
+      }).then(function () { return worker.recognize(enhanced, {}, { text: true, tsv: true, blocks: true }); }).then(function (result) {
+        main = result;
+        var text = (result.data.text || '').trim();
+        if (PARSE.detectDocumentType(text) !== 'base-passenger') return { summary: '', categories: '', table: '' };
+        setScan('Cross-checking printed passenger and gender totals…');
+        var summaryCrop = crop(enhanced, enhanced.width * .333, enhanced.height * .365, enhanced.width * .31, enhanced.height * .33, 1.8);
+        var categoryCrop = crop(enhanced, enhanced.width * .665, enhanced.height * .535, enhanced.width * .31, enhanced.height * .20, 2);
+        var tableCrop = crop(enhanced, enhanced.width * .09, enhanced.height * .165, enhanced.width * .87, enhanced.height * .25, 1.6);
+        return worker.setParameters({ tessedit_pageseg_mode: '6' }).then(function () {
+          return worker.recognize(summaryCrop, {}, { text: true });
+        }).then(function (summary) {
+          return worker.recognize(categoryCrop, {}, { text: true }).then(function (categories) {
+            return worker.recognize(tableCrop, {}, { text: true }).then(function (table) {
+              return { summary: summary.data.text || '', categories: categories.data.text || '', table: table.data.text || '' };
+            });
+          });
+        }).finally(function () { return worker.setParameters({ tessedit_pageseg_mode: '11' }); });
+      }).then(function (supplements) {
+        var text = (main.data.text || '').trim(), confidence = isFinite(main.data.confidence) ? main.data.confidence : 0;
+        return { text: text, confidence: confidence, counts: PARSE.parseManifestScan(text, main.data.tsv || '', enhanced.width || 0, enhanced.height || 0, CFG.paxWeights, supplements) };
+      });
+    }
+    function mergeDocuments(documents) {
+      var passengerDoc = documents.find(function (doc) { return doc.counts.documentType !== 'base-baggage' && doc.counts.total > 0; });
+      var baggageDoc = documents.find(function (doc) { return doc.counts.documentType === 'base-baggage'; });
+      var chosen = passengerDoc || documents[0], counts = chosen.counts;
+      if (passengerDoc && baggageDoc) {
+        var bagLoad = baggageDoc.counts.load || {}, paxLoad = counts.load || {};
+        ['checkedCount','handCount','ocsCount','bumpedCount','luggage','handWeight','ocsWeight','bumpedWeight'].forEach(function (key) {
+          if (bagLoad[key] !== null && bagLoad[key] !== undefined) paxLoad[key] = bagLoad[key];
+        });
+        counts.load = paxLoad;
+        counts.meta = counts.meta || {};
+        Object.keys(baggageDoc.counts.meta || {}).forEach(function (key) { if (!counts.meta[key]) counts.meta[key] = baggageDoc.counts.meta[key]; });
+        counts.evidence = counts.evidence || {}; counts.evidence.baggageManifest = true;
+      }
+      return { counts: counts, ocrConfidence: documents.reduce(function (sum, doc) { return sum + doc.confidence; }, 0) / documents.length, manual: false };
+    }
+
+    var chain = Promise.resolve([]);
+    selectedFiles.forEach(function (file, index) {
+      chain = chain.then(function (documents) { return recognizeOne(file, index).then(function (doc) { documents.push(doc); return documents; }); });
+    });
+    chain.then(function (documents) {
+      state.ocrText = documents.map(function (doc, index) { return '--- Document ' + (index + 1) + ' ---\n' + doc.text; }).join('\n\n');
+      scanResult = mergeDocuments(documents);
       setProgress('complete', 100);
       ocrBusy = false;
       render();
-      if (!text) toast('No readable text found. Try a sharper, closer photo.');
-      else toast('Scan complete. Check the detected passenger totals.');
+      if (!state.ocrText.trim()) toast('No readable text found. Try a sharper, closer photo.');
+      else toast('Scan complete. Passenger and load totals were cross-checked.');
     }).catch(function (error) {
       console.error(error);
       ocrBusy = false;
@@ -592,7 +641,8 @@
       if (c.meta.flightNo) state.flight.no = c.meta.flightNo;
       if (c.meta.route) state.flight.route = c.meta.route;
     }
-    toast('Loaded ' + list.length + ' passengers' + (c.load && c.load.luggage !== null ? ' and ' + f(c.load.luggage) + ' lb luggage' : '') + '. Review the seats and baggage station.');
+    toast('Loaded ' + list.length + ' passengers' + (c.load && c.load.luggage !== null ? ' and ' + f(c.load.luggage) + ' lb luggage' : '') +
+      (c.load && c.load.eic > 0 ? '. EIC was not assigned—enter it at the approved station.' : '. Review the seats and baggage station.'));
     go(2);
   }
   function setScan(t) { var e = $('scanStatus'); if (e) e.textContent = t; }

@@ -441,7 +441,124 @@
     };
   }
 
-  function parseManifestScan(text, tsv, imageWidth, imageHeight, weights) {
+  function detectDocumentType(text) {
+    var upper = cleanOcr(text).toUpperCase();
+    if (/TOTAL\s+LUGGAGES?\s+COUNT/.test(upper) && /BUMPED\s+BAGGAGES?/.test(upper)) return 'base-baggage';
+    if (/NUMBER\s+OF\s+PASSENGERS/.test(upper) && /TOTAL\s+MALES/.test(upper)) return 'base-passenger';
+    return 'passenger-manifest';
+  }
+
+  function parseNumberLines(raw) {
+    return cleanOcr(raw).split(/\n+/).map(function (line) {
+      var trimmed = line.trim();
+      return /^\d{1,5}(?:\.\d+)?$/.test(trimmed) ? +trimmed : null;
+    }).filter(function (value) { return value !== null; });
+  }
+
+  /* Island Aviation base manifests print the useful totals in two narrow
+   * columns. The caller supplies PSM-6 OCR from those crops because sparse-page
+   * OCR reliably sees the labels but frequently drops the one-digit values. */
+  function parseBasePassengerManifest(text, summaryText, categoryText, tableText) {
+    var upper = cleanOcr(text).toUpperCase();
+    var summaryNumbers = parseNumberLines(summaryText);
+    var categories = cleanOcr(categoryText).toUpperCase();
+    function category(label) {
+      return firstMatch(categories, [new RegExp('TOTAL\\s+' + label + '[^\\d]{0,18}(\\d{1,2})', 'i')]);
+    }
+    var male = category('MALES?'), female = category('FEMALES?');
+    var child = category('CHILDREN|CHILD'), infant = category('INFANTS?|INF');
+    var total = summaryNumbers.length >= 8 ? summaryNumbers[0] : firstMatch(upper, [/NUMBER\s+OF\s+PASSENGERS[^\d]{0,24}(\d{1,2})/]);
+    male = male === null ? 0 : male; female = female === null ? 0 : female;
+    child = child === null ? 0 : child; infant = infant === null ? 0 : infant;
+    if (!total) total = male + female + child + infant;
+    var luggage = summaryNumbers.length >= 8 ? summaryNumbers[4] : null;
+    var ocsWeight = summaryNumbers.length >= 8 ? summaryNumbers[5] : null;
+    var paxWeight = summaryNumbers.length >= 8 ? summaryNumbers[6] : firstMatch(upper, [/PAX\s+WEIGHT[^\d]{0,20}(\d{1,5}(?:\.\d+)?)/]);
+    var combined = summaryNumbers.length >= 10 ? summaryNumbers[9] : null;
+    var payload = summaryNumbers.length >= 11 ? summaryNumbers[10] : null;
+    var eic = combined !== null && luggage !== null && ocsWeight !== null ? Math.max(0, combined - luggage - ocsWeight) : null;
+    var classified = male + female + child + infant;
+    var passengers = [];
+    cleanOcr(tableText).toUpperCase().split(/\n+/).forEach(function (line) {
+      var match = line.match(/\b\d{1,2}\s+GOV\s+(\d{6})\s+(.+?)\s+(?:(?:MR|MRS|MS|MISS)\s*[/I]?\s*([MF])|([MF])\s+(?:MALE|FEMALE)\b)/);
+      if (!match) return;
+      var name = match[2].replace(/[^A-Z'\-/ ]/g, '').replace(/\s+/g, ' ').trim();
+      var cat = match[3] || match[4] || '?';
+      if (name) passengers.push({ ticket: match[1], name: name, cat: cat, weight: null });
+    });
+    if (passengers.length !== total) {
+      var unanimous = male === total ? 'M' : female === total ? 'F' : child === total ? 'C' : infant === total ? 'I' : '?';
+      passengers = [];
+      var seenNames = {};
+      var nameMatches = cleanOcr(tableText).toUpperCase().match(/\b[A-Z]{3,}\/[A-Z]{3,}\b/g) || [];
+      nameMatches.forEach(function (name) {
+        if (passengers.length >= total || seenNames[name]) return;
+        seenNames[name] = true;
+        passengers.push({ ticket: '', name: name, cat: unanimous, weight: null });
+      });
+    }
+    var issues = [];
+    if (classified !== total) issues.push('Passenger categories total ' + classified + ' but the manifest reports ' + total + '.');
+    if (eic > 0) issues.push(eic + ' lb EIC detected. Assign it to the approved loading station before calculation.');
+    var registration = (upper.match(/\b8[QO][\s-]*[A-Z]{3}\b/) || [])[0] || '';
+    var flight = (upper.match(/\bQ2[\s-]*\d{4}\b/) || [])[0] || '';
+    var route = (upper.match(/\b[A-Z]{3}\s*-\s*[A-Z]{3}\b/) || [])[0] || '';
+    return {
+      documentType: 'base-passenger', male: male, female: female, child: child, infant: infant,
+      unknown: Math.max(0, total - classified), total: total, reportedTotal: total,
+      passengers: passengers.length === total ? passengers : undefined,
+      source: 'base manifest summary columns', confidence: classified === total && total ? 'High' : 'Medium',
+      consistent: issues.length === 0, issues: issues,
+      load: {
+        checkedCount: summaryNumbers.length >= 8 ? summaryNumbers[1] : null,
+        handCount: summaryNumbers.length >= 8 ? summaryNumbers[2] : null,
+        ocsCount: summaryNumbers.length >= 8 ? summaryNumbers[3] : null,
+        luggage: luggage, ocsWeight: ocsWeight, eic: eic, combined: combined,
+        paxWeight: paxWeight, payload: payload, cargo: null, takeoffFuel: null, burnFuel: null
+      },
+      meta: {
+        registration: registration.replace(/\s/g, '').replace(/^8O/, '8Q').replace(/^8Q(?=[A-Z])/, '8Q-'),
+        flightNo: flight.replace(/\s/g, '').replace(/^Q2(?=\d)/, 'Q2-'),
+        route: route.replace(/\s/g, '').replace('-', '–'), time: ''
+      },
+      evidence: { summaryValues: summaryNumbers.length, categoryTotals: categories ? 4 : 0 }
+    };
+  }
+
+  function parseBaseBaggageManifest(text) {
+    var upper = cleanOcr(text).toUpperCase();
+    function countWeight(label) {
+      var match = upper.match(new RegExp(label + '[\\s\\S]{0,45}?(\\d{1,3})\\s*[/I]\\s*(\\d{1,5})', 'i'));
+      if (!match) return { count: null, weight: null };
+      // A ruled separator beside a printed zero is commonly recognized as a
+      // second digit ("07/0"). Base counts are not zero-padded, so retain the
+      // leading printed zero instead of inventing seven weightless bags.
+      var count = /^0\d+$/.test(match[1]) ? 0 : +match[1];
+      return { count: count, weight: +match[2] };
+    }
+    var checked = countWeight('TOTAL\\s+LUGGAGES?\\s+COUNT\\s*[/]?\\s*WEIGHT');
+    var hand = countWeight('TOTAL\\s+HAND\\s+LUGGAGES?\\s+COUNT');
+    var ocs = countWeight('TOTAL\\s+OCS\\s+COUNT\\s*[/]?\\s*WEIGHT');
+    var bumped = countWeight('TOTAL\\s+BUMPED\\s+BAGGAGES?\\s+COUNT');
+    var registration = (upper.match(/\b8[QO][\s-]*[A-Z]{3}\b/) || [])[0] || '';
+    var flight = firstMatch(upper, [/FLIGHT\s+NO[^\d]{0,20}(\d{3,4})/]);
+    var route = (upper.match(/\b[A-Z]{3}\s*-\s*[A-Z]{3}\b/) || [])[0] || '';
+    return {
+      documentType: 'base-baggage', male: 0, female: 0, child: 0, infant: 0, unknown: 0,
+      total: 0, reportedTotal: 0, source: 'base baggage totals', confidence: 'High', consistent: true, issues: [],
+      load: { checkedCount: checked.count, handCount: hand.count, ocsCount: ocs.count, bumpedCount: bumped.count,
+        luggage: checked.weight, handWeight: hand.weight, ocsWeight: ocs.weight, bumpedWeight: bumped.weight,
+        cargo: null, paxWeight: null, takeoffFuel: null, burnFuel: null },
+      meta: { registration: registration.replace(/\s/g, '').replace(/^8O/, '8Q').replace(/^8Q(?=[A-Z])/, '8Q-'),
+        flightNo: flight !== null ? String(flight) : '', route: route.replace(/\s/g, '').replace('-', '–') },
+      evidence: { baggageTotals: 4 }
+    };
+  }
+
+  function parseManifestScan(text, tsv, imageWidth, imageHeight, weights, supplements) {
+    var documentType = detectDocumentType(text);
+    if (documentType === 'base-baggage') return parseBaseBaggageManifest(text);
+    if (documentType === 'base-passenger') return parseBasePassengerManifest(text, supplements && supplements.summary, supplements && supplements.categories, supplements && supplements.table);
     var result = parseManifestCounts(text);
     var spatial = parseSpatialManifest(tsv, imageWidth, imageHeight, weights);
     if (!spatial.total) return result;
@@ -502,6 +619,9 @@
     parseTitleScan: parseTitleScan,
     countPassengerRows: countPassengerRows,
     parseManifestCounts: parseManifestCounts,
+    detectDocumentType: detectDocumentType,
+    parseBasePassengerManifest: parseBasePassengerManifest,
+    parseBaseBaggageManifest: parseBaseBaggageManifest,
     parseManifestScan: parseManifestScan
   };
 });

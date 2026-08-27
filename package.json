@@ -1,6 +1,6 @@
 {
   "name": "dhc6-cg-calculator",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Offline-first PWA for DHC-6 Twin Otter weight & balance.",
   "scripts": {
