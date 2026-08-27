@@ -219,7 +219,7 @@
     var preview = selectedPreviewUrl ? '<img class="scan-preview" src="' + esc(selectedPreviewUrl) + '" alt="Selected manifest preview">' : '<div class="upload-icon"><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></div>';
     return '' +
       '<section class="card">' +
-        '<div class="section-title"><div><span class="section-kicker">On-device OCR</span><h2>Scan passenger manifest</h2></div><span class="privacy-pill">Private</span></div>' +
+        '<div class="section-title"><div><span class="section-kicker">On-device OCR</span><h2>Scan passenger manifest</h2></div><span class="privacy-pill">Private · OCR v3</span></div>' +
         '<p class="muted sm">Use a straight, well-lit photo with the full passenger list visible. The image is processed on this device and is never uploaded.</p>' +
         '<div class="dropzone ' + (selectedFile ? 'has-file' : '') + '">' + preview + '<div><b id="fileName">' + esc(selectedFile ? selectedFile.name : 'Choose a manifest image') + '</b><span>' + (selectedFile ? f(selectedFile.size / 1024) + ' KB · ready to scan' : 'JPG, PNG or a camera photo') + '</span></div></div>' +
         '<div class="grid-2">' +
@@ -688,7 +688,6 @@
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
     render();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

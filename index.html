@@ -84,10 +84,24 @@ input,select,textarea{width:100%;min-height:48px;padding:11px 12px;font-size:15p
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="printSheet"></div>
 
-<script src="vendor/tesseract/tesseract.min.js"></script>
-<script src="config.js"></script>
-<script src="engine.js"></script>
-<script src="parsers.js"></script>
-<script src="app.js"></script>
+<script>
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  var reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js?v=20260827.3', { updateViaCache: 'none' })
+    .then(function (registration) { return registration.update(); })
+    .catch(function () {});
+})();
+</script>
+<script src="vendor/tesseract/tesseract.min.js?v=20260827.3"></script>
+<script src="config.js?v=20260827.3"></script>
+<script src="engine.js?v=20260827.3"></script>
+<script src="parsers.js?v=20260827.3"></script>
+<script src="app.js?v=20260827.3"></script>
 </body>
 </html>

@@ -23,4 +23,7 @@ assets.forEach(asset => {
 });
 assert.ok(html.includes('vendor/tesseract/tesseract.min.js'), 'the local OCR library is not loaded');
 assert.ok(!/cdn\.jsdelivr|unpkg\.com/.test(html), 'runtime still depends on a third-party OCR CDN');
+assert.ok(/controllerchange/.test(html), 'the page does not reload when a new service worker activates');
+assert.ok(/updateViaCache:\s*'none'/.test(html), 'service-worker updates can still use a stale HTTP cache');
+assert.ok(/cache:\s*'reload'/.test(sw), 'application code is not refreshed network-first');
 console.log(`  ok  - ${assets.length} OCR assets are local and cached`);
