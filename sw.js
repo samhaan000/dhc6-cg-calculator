@@ -1,5 +1,5 @@
-const CACHE_NAME = 'dhc6-load-balance-v13';
-const APP_VERSION = '20260828.2';
+const CACHE_NAME = 'dhc6-load-balance-v14';
+const APP_VERSION = '20260828.3';
 const CORE_ASSETS = [
   './',
   './index.html',

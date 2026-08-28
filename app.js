@@ -10,8 +10,8 @@
 
   var STEPS = ['Setup', 'Manifest', 'Seating', 'Load', 'CG'];
   var SEATS = (function () { var a = [], r, c, C = ['A', 'B', 'C']; for (r = 1; r <= 5; r++) for (c = 0; c < 3; c++) a.push(r + C[c]); return a; })();
-  var CAT_LABEL = { M: 'Male', F: 'Female', C: 'Child', I: 'Infant', '?': 'Needs review' };
-  function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I'; }
+  var CAT_LABEL = { M: 'Male', F: 'Female', C: 'Child', I: 'Infant', CC: 'Cabin crew', '?': 'Needs review' };
+  function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I' || c === 'CC'; }
   var STATE_KEY = 'dhc6_flight_v3', LEGACY_STATE_KEY = 'dhc6_flight_v2', PRESET_KEY = 'dhc6_aircraft_presets_v1';
 
   var state = {
@@ -33,12 +33,13 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]; }); }
   function parseSeat(s) { var m = /^([1-5])([ABC])$/i.exec(String(s || '').trim()); return m ? { row: +m[1] - 1, col: 'ABC'.indexOf(m[2].toUpperCase()) } : null; }
   function paxWeight(p) { var w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return CFG.paxWeights[p.cat] || 0; }
-  function isSeatCat(c) { return c === 'M' || c === 'F' || c === 'C'; }
+  function isSeatCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'CC'; }
   function categoryCounts() {
     var counts = { M: 0, F: 0, C: 0, I: 0, '?': 0 };
-    state.pax.forEach(function (passenger) { counts.hasOwnProperty(passenger.cat) ? counts[passenger.cat]++ : counts['?']++; });
+    state.pax.filter(function (passenger) { return passenger.cat !== 'CC'; }).forEach(function (passenger) { counts.hasOwnProperty(passenger.cat) ? counts[passenger.cat]++ : counts['?']++; });
     return counts;
   }
+  function extraCrew() { return state.pax.find(function (passenger) { return passenger.cat === 'CC'; }) || null; }
 
   /* ---------- persistence ---------- */
   function save() {
@@ -140,10 +141,13 @@
     var level = hasRed ? 'red' : (hasAmber ? 'amber' : 'green');
     var operational = complete && !hasRed && CFG.meta.verified;
     var canPrintDraft = complete && !hasRed;
-    var paxCount = state.pax.length, seatCount = state.pax.filter(function (p) { return p.cat !== 'I'; }).length;
+    var paxCount = state.pax.filter(function (p) { return p.cat !== 'CC'; }).length;
+    var crewCount = state.pax.filter(function (p) { return p.cat === 'CC'; }).length;
+    var seatCount = state.pax.filter(function (p) { return p.cat !== 'I'; }).length;
     var infantCount = state.pax.filter(function (p) { return p.cat === 'I'; }).length;
-    var paxWt = state.pax.reduce(function (s, p) { return s + paxWeight(p); }, 0);
-    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt, preferredIndex: preferredIndex };
+    var paxWt = state.pax.filter(function (p) { return p.cat !== 'CC'; }).reduce(function (s, p) { return s + paxWeight(p); }, 0);
+    var crewWt = state.pax.filter(function (p) { return p.cat === 'CC'; }).reduce(function (s, p) { return s + paxWeight(p); }, 0);
+    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, crewCount: crewCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt, crewWt: crewWt, preferredIndex: preferredIndex };
   }
 
   /* ---------- shared UI bits ---------- */
@@ -291,8 +295,8 @@
     for (var r = 1; r <= 5; r++) {
       var tiles = ['A', 'B', 'C'].map(function (col) {
         var label = r + col, idx = seatPaxIndex(label), p = idx >= 0 ? state.pax[idx] : null, infants = seatInfants(label);
-        var cls = p ? (p.cat === '?' ? 'need' : 'cat-' + p.cat) : (infants.length ? 'need' : 'empty');
-        var glyph = p ? (p.cat === '?' ? '?' : p.cat) : (infants.length ? 'I?' : (readonly ? '·' : '+'));
+        var cls = p ? (p.cat === 'CC' ? 'crew' : (p.cat === '?' ? 'need' : 'cat-' + p.cat)) : (infants.length ? 'need' : 'empty');
+        var glyph = p ? (p.cat === 'CC' ? 'CC' : (p.cat === '?' ? '?' : p.cat)) : (infants.length ? 'I?' : (readonly ? '·' : '+'));
         var lap = infants.length ? '<span class="seat-lap">+ ' + infants.length + ' infant' + (infants.length > 1 ? 's' : '') + '</span>' : '';
         var inner = '<span class="seat-id">' + label + '</span><span class="seat-cat">' + glyph + '</span>' + lap;
         var aria = 'Seat ' + label + (p ? ', ' + CAT_LABEL[p.cat] : ', empty') + (infants.length ? ', with lap infant' : '');
@@ -306,6 +310,7 @@
   }
   function renderCategoryEditor() {
     var counts = categoryCounts();
+    var crew = extraCrew();
     function card(cat, label, weight, cls) {
       var note = cat === 'I' ? weight + ' lb · lap passenger' : (weight ? weight + ' lb' : 'Set category');
       return '<div class="pax-count-card ' + cls + '"><div><b>' + label + '</b><span>' + note + '</span></div>' +
@@ -317,7 +322,8 @@
       card('M', 'Male', CFG.paxWeights.M, 'cat-M') + card('F', 'Female', CFG.paxWeights.F, 'cat-F') +
       card('C', 'Child', CFG.paxWeights.C, 'cat-C') + card('I', 'Infant', CFG.paxWeights.I, 'cat-I') +
       (counts['?'] ? card('?', 'Unclear', 0, 'need') : '') +
-      '</div>';
+      '</div>' +
+      '<label class="crew-option"><input type="checkbox" data-extra-crew' + (crew ? ' checked' : '') + '><span class="crew-switch" aria-hidden="true"></span><span class="crew-copy"><b>Extra cabin crew</b><small>75 kg standard · ' + f(CFG.paxWeights.CC, 1) + ' lb · occupies one cabin seat</small><em>Verify the 75 kg operator standard. Weight remains editable below.</em></span></label>';
   }
   function renderPreferredIndexControl() {
     var preferred = preferredIndexValue(), min = CFG.indexZones.min, max = CFG.indexZones.max;
@@ -340,17 +346,17 @@
     var list = indexed.map(function (o) {
       var p = o.p, i = o.i, need = p.cat === '?';
       var ph = need ? 'wt' : f(CFG.paxWeights[p.cat] || 0);
-      var seatText = p.cat === 'I' ? ('Lap · ' + (p.seat || 'unassigned')) : ((p.seat || '—') + ' ' + (need ? '?' : p.cat));
-      return '<div class="paxrow ' + (need ? 'need' : '') + '">' +
-        '<span class="catchip ' + (need ? 'need' : 'cat-' + p.cat) + '">' + esc(seatText) + '</span>' +
-        '<input class="cell name" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="Name (optional)" aria-label="Passenger name">' +
+      var seatText = p.cat === 'CC' ? ((p.seat || '—') + ' CC') : (p.cat === 'I' ? ('Lap · ' + (p.seat || 'unassigned')) : ((p.seat || '—') + ' ' + (need ? '?' : p.cat)));
+      return '<div class="paxrow ' + (need ? 'need' : '') + (p.cat === 'CC' ? ' crew-row' : '') + '">' +
+        '<span class="catchip ' + (p.cat === 'CC' ? 'crew' : (need ? 'need' : 'cat-' + p.cat)) + '">' + esc(seatText) + '</span>' +
+        '<input class="cell name" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="' + (p.cat === 'CC' ? 'Cabin crew' : 'Name (optional)') + '" aria-label="' + (p.cat === 'CC' ? 'Cabin crew name' : 'Passenger name') + '">' +
         '<input class="cell wt num" type="number" min="1" step="any" inputmode="decimal" data-bind="pax.' + i + '.weight" value="' + (p.weight > 0 ? p.weight : '') + '" placeholder="' + ph + '" aria-label="Passenger weight override">' +
         '<button class="iconbtn" data-action="delPax" data-i="' + i + '" aria-label="Remove passenger">&times;</button>' +
       '</div>';
     }).join('');
     return '' +
       '<section class="card">' +
-        '<div class="card-head"><div><span class="section-kicker">Passenger totals</span><h2>Who is travelling?</h2></div><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + c.seatCount + ' seats</b></div></div>' +
+        '<div class="card-head"><div><span class="section-kicker">Passenger totals</span><h2>Who is travelling?</h2></div><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b>' + (c.crewCount ? ' &middot; <b>' + c.crewCount + ' crew</b>' : '') + ' &middot; <b>' + c.seatCount + ' seats</b></div></div>' +
         '<p class="muted sm" style="margin-top:0">Enter the totals directly or correct the scan. Infants share an adult passenger’s seat.</p>' +
         renderCategoryEditor() +
       '</section>' +
@@ -359,7 +365,7 @@
         '<p class="muted sm" style="margin-top:0">The app places passengers for a balanced longitudinal load. Tap any seat to make an operational adjustment.</p>' +
         renderPreferredIndexControl() +
         renderSeatMap() +
-        '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span></div>' +
+        '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span><span class="lg crew">CC Cabin crew</span></div>' +
         (c.needReview.length ? '<div class="banner amber sm">' + c.needReview.length + ' passenger(s) still need a valid category or lap assignment.</div>' : '') +
         '<button class="btn primary block" data-action="optimizeSeats"' + (state.pax.length && !c.needReview.length ? '' : ' disabled') + '>Balance seats for current load</button>' +
         (list ? '<details class="acc passenger-details"><summary>Passenger details &amp; individual weights <span>Optional</span></summary><div class="paxlist">' + list + '</div></details>' : '<p class="muted sm" style="text-align:center;padding:8px">Enter passenger totals above or tap a seat to begin.</p>') +
@@ -374,6 +380,7 @@
       if (state.pax.filter(function (p) { return p.cat !== 'I'; }).length >= 15) { toast('All 15 seats are taken.'); return; }
       state.pax.push({ id: uid(), name: '', cat: 'M', seat: label });
     } else {
+      if (state.pax[idx].cat === 'CC') { toast('Use the Extra cabin crew switch to remove crew.'); return; }
       var cur = state.pax[idx].cat, nxt = order.hasOwnProperty(cur) ? order[cur] : 'M';
       if (nxt === null) {
         state.pax.splice(idx, 1);
@@ -402,6 +409,21 @@
     } else {
       for (var add = current; add < target; add++) state.pax.push({ id: uid(), name: '', cat: cat, seat: '' });
     }
+    arrangeSeats(true);
+  }
+  function setExtraCrew(enabled) {
+    var existing = extraCrew();
+    if (!enabled) {
+      state.pax = state.pax.filter(function (passenger) { return passenger.cat !== 'CC'; });
+      if (state.pax.length) arrangeSeats(true); else render();
+      return;
+    }
+    if (existing) { render(); return; }
+    if (state.pax.filter(function (passenger) { return passenger.cat !== 'I'; }).length >= 15) {
+      toast('No cabin seat is available for extra crew. Reduce the passenger seat count first.');
+      render(); return;
+    }
+    state.pax.push({ id: uid(), name: 'Cabin crew', cat: 'CC', seat: '', weight: '' });
     arrangeSeats(true);
   }
   function centerOutArrangement() {
@@ -491,7 +513,7 @@
       (!CFG.meta.verified ? '<div class="notice unverified strong"><b>Not for operational use</b><span>The configured envelope and aircraft constants are still unverified.</span></div>' : '') +
       '<section class="card"><div class="section-title"><div><span class="section-kicker">Takeoff and landing</span><h2>CG envelope</h2></div></div>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">' + (CFG.meta.verified ? 'Approved' : 'Prototype') + ' band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC · MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
       targetSummary +
-      '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + c.seatCount + ' seats</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span></div></section>' +
+      '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b>' + (c.crewCount ? ' &middot; <b>' + c.crewCount + ' crew</b>' : '') + ' &middot; <b>' + c.seatCount + ' seats</b> &middot; <b>' + f(c.paxWt + c.crewWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span><span class="lg crew">CC Cabin crew</span></div></section>' +
       '<section class="card">' +
         '<div class="section-title"><div><span class="section-kicker">Load summary</span><h2>Weight and balance</h2></div></div>' +
         '<div class="stat-grid-3">' +
@@ -812,7 +834,8 @@
     if (!c.canPrintDraft) return toast('Correct all red issues before printing.');
     var m = c.m, s = statusWord(c.level, c.complete), now = new Date().toLocaleString();
     function rows(title, arr) { return '<div class="ps-sec"><h3>' + title + '</h3>' + arr.map(function (r) { return '<div class="ps-row"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>'; }).join('') + '</div>'; }
-    var paxRows = state.pax.map(function (p, index) { var seatLabel = p.cat === 'I' ? ('Lap at ' + (p.seat || 'unassigned')) : (p.seat || '—'); return '<div class="ps-row"><span>' + esc(p.name || ('Passenger ' + (index + 1))) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(seatLabel) + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
+    var paxRows = state.pax.filter(function (p) { return p.cat !== 'CC'; }).map(function (p, index) { var seatLabel = p.cat === 'I' ? ('Lap at ' + (p.seat || 'unassigned')) : (p.seat || '—'); return '<div class="ps-row"><span>' + esc(p.name || ('Passenger ' + (index + 1))) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(seatLabel) + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
+    var crewRows = state.pax.filter(function (p) { return p.cat === 'CC'; }).map(function (p) { return '<div class="ps-row"><span>' + esc(p.name || 'Cabin crew') + ' · Seat ' + esc(p.seat || '—') + '</span><b>' + f(paxWeight(p), 1) + ' lb</b></div>'; }).join('');
     $('printSheet').innerHTML =
       (!CFG.meta.verified ? '<div class="ps-watermark">UNVERIFIED · REVIEW DRAFT · NOT FOR OPERATIONAL USE</div>' : '') +
       '<div class="ps-head"><div><div class="ps-title">DHC-6 CG / ' + (CFG.meta.verified ? 'LOAD SHEET' : 'REVIEW DRAFT') + '</div><div class="ps-sub">Weight &amp; Balance Summary</div></div>' +
@@ -824,7 +847,8 @@
         rows('Takeoff CG', [['Preferred index', c.preferredIndex === null ? 'Auto' : f(c.preferredIndex, 1)], ['Achieved index', f(m.to.index, 2)], ['Arm', f(m.to.arm, 2)], ['%MAC', f(m.to.mac, 2)]]) +
         rows('Landing CG', [['Arm', f(m.la.arm, 2)], ['Index', f(m.la.index, 2)], ['%MAC', f(m.la.mac, 2)]]) +
       '</div>' +
-      '<div class="ps-sec"><h3>Passengers (' + c.paxCount + ' persons · ' + c.seatCount + ' seats · ' + f(c.paxWt) + ' lb)</h3>' + (paxRows || '<div class="ps-row"><span>None</span><b>—</b></div>') + '</div>' +
+      '<div class="ps-sec"><h3>Passengers (' + c.paxCount + ' persons · ' + f(c.paxWt) + ' lb)</h3>' + (paxRows || '<div class="ps-row"><span>None</span><b>—</b></div>') + '</div>' +
+      (crewRows ? '<div class="ps-sec"><h3>Extra cabin crew · 75 kg standard</h3>' + crewRows + '</div>' : '') +
       rows('Baggage / Cargo', [['Stretcher', f(num(state.cargo.stretcher)) + ' lb'], ['Seat row 4', f(num(state.cargo.bagR4)) + ' lb'], ['Seat row 5', f(num(state.cargo.bagR5)) + ' lb'], ['Area D', f(num(state.cargo.bagD)) + ' lb'], ['Aft compartment', f(num(state.cargo.bagAft)) + ' lb'], ['Aft shelf', f(num(state.cargo.bagShelf)) + ' lb']]) +
       '<div class="ps-sec"><h3>Remarks</h3><div class="ps-row"><span>' + (esc(state.flight.remarks) || '—') + '</span></div></div>' +
       '<div class="ps-note">' + (CFG.meta.verified ? '' : 'UNVERIFIED REVIEW DRAFT — NOT FOR OPERATIONAL USE. ') + 'Verify all loading, fuel, CG/index and limits against approved aircraft / operator documents.</div>' +
@@ -884,7 +908,7 @@
     if (el.hasAttribute('data-rerender')) { render(); return; }
     save();
     if (state.step === 0) { var hero = document.getElementById('dashHero'); if (hero) hero.outerHTML = renderHero(); }
-    else if (state.step === 2) { var chip = document.getElementById('reviewChip'); if (chip) { var cc = compute(); chip.innerHTML = '<b>' + cc.paxCount + ' pax</b> · <b>' + cc.seatCount + ' seats</b>'; } }
+    else if (state.step === 2) { var chip = document.getElementById('reviewChip'); if (chip) { var cc = compute(); chip.innerHTML = '<b>' + cc.paxCount + ' pax</b>' + (cc.crewCount ? ' · <b>' + cc.crewCount + ' crew</b>' : '') + ' · <b>' + cc.seatCount + ' seats</b>'; } }
     else if (state.step === 3) { var live = document.querySelector('.live'); if (live) live.outerHTML = liveSummary(); }
   }
   function onClick(e) {
@@ -916,6 +940,7 @@
   function onChange(e) {
     var el = e.target;
     if (el.matches && el.matches('[data-action="loadPreset"]')) { if (el.value) doLoadPreset(el.value); return; }
+    if (el.hasAttribute && el.hasAttribute('data-extra-crew')) { setExtraCrew(el.checked); return; }
     if (el.hasAttribute && el.hasAttribute('data-cat-count')) setCategoryCount(el.getAttribute('data-cat-count'), el.value);
   }
 

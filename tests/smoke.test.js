@@ -110,6 +110,16 @@ test('adding an infant keeps the occupied-seat count unchanged', () => {
   if (!/3 pax/.test($('reviewChip').textContent) || !/2 seats/.test($('reviewChip').textContent)) throw new Error('passenger/seat totals are wrong');
 });
 
+test('extra cabin crew is separate from passenger totals and occupies a seat', () => {
+  const toggle = q('[data-extra-crew]');
+  toggle.checked = true;
+  toggle.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const occupied = qa('.seat-tile:not(.empty)');
+  if (occupied.length !== 3) throw new Error('extra cabin crew did not occupy one seat');
+  if (!q('.seat-tile.crew') || !/CC/.test(q('.seat-tile.crew').textContent)) throw new Error('cabin crew seat is not identified');
+  if (!/3 pax/.test($('reviewChip').textContent) || !/1 crew/.test($('reviewChip').textContent) || !/3 seats/.test($('reviewChip').textContent)) throw new Error('crew/passenger totals are wrong');
+});
+
 test('per-passenger weight override works', () => {
   const wt = q('[data-bind="pax.0.weight"]');
   setVal(wt, '205');
@@ -132,6 +142,7 @@ test('results step shows a status banner and CG envelope chart', () => {
   if (!/% MAC/.test(html)) throw new Error('no %MAC output');
   if (!q('.seat-tile.ro')) throw new Error('no read-only cabin layout on results');
   if (!/Preferred TO index/.test(html) || !/Achieved/.test(html)) throw new Error('preferred/achieved index summary missing');
+  if (!/1 crew/.test(html)) throw new Error('extra cabin crew missing from results');
 });
 
 test('export builds a load sheet without error', () => {

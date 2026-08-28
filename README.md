@@ -38,6 +38,10 @@ the preferred takeoff index on Auto, choose a quick target, or enter a custom
 target; the optimizer reports the closest achieved value while prioritizing the
 configured takeoff/landing CG and index safety zones;
 the completed load is still checked against every configured CG and weight limit.
+One optional extra cabin crew member can be added separately at a provisional
+75 kg / 165.35 lb standard weight. Crew occupies a cabin seat, appears as `CC`
+in the seat map and load sheet, stays editable, and is excluded from passenger
+manifest totals. Verify the 75 kg standard against current operator data.
 Category totals are cross-checked against the printed passenger-weight total;
 unclear passengers are flagged and counts above the 15-seat capacity are blocked.
 

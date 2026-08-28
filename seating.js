@@ -27,7 +27,7 @@
 
   function seatGrid(passengers, cfg) {
     var grid = [['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E']];
-    passengers.filter(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C'; }).forEach(function (passenger) {
+    passengers.filter(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C' || passenger.cat === 'CC'; }).forEach(function (passenger) {
       var match = /^([1-5])([ABC])$/.exec(String(passenger.seat || '').toUpperCase());
       if (!match) return;
       grid[+match[1] - 1]['ABC'.indexOf(match[2])] = passengerWeight(passenger, cfg);
@@ -160,7 +160,7 @@
     preferredIndex = preferredIndex !== '' && preferredIndex !== null && preferredIndex !== undefined && isFinite(+preferredIndex) ? +preferredIndex : null;
     var occupants = passengers.filter(function (passenger) { return passenger.cat !== 'I'; });
     var infants = passengers.filter(function (passenger) { return passenger.cat === 'I'; });
-    var categoriesComplete = occupants.every(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C'; });
+    var categoriesComplete = occupants.every(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C' || passenger.cat === 'CC'; });
     if (!occupants.length || !categoriesComplete) return { passengers: passengers.slice(), changed: false, reason: 'Passenger categories are incomplete.' };
     if (occupants.length > 15) return { passengers: passengers.slice(), changed: false, reason: 'More than 15 occupied seats were entered.' };
 

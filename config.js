@@ -33,7 +33,9 @@
     // review screen lets the user override any passenger's actual weight.
     // E = empty seat. I = lap infant; weight is applied at the accompanying
     // adult passenger's seat arm. Verify the standard weight/operator policy.
-    paxWeights: { E: 0, M: 189, F: 150, C: 77, I: 30 },
+    // CC = one optional extra cabin crew member. 75 kg = 165.35 lb.
+    // Verify this operator standard before operational use.
+    paxWeights: { E: 0, M: 189, F: 150, C: 77, I: 30, CC: 165.35 },
 
     // Seat-row reference arms (in), rows 1..5 (Front .. Rear).
     seatArms: [135, 165, 195, 225, 254],

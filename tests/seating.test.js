@@ -108,6 +108,27 @@ test('lap infant shares an adult seat and does not consume another seat', () => 
   assert.strictEqual(result.metrics.pax, 2 * cfg.paxWeights.M + 2 * cfg.paxWeights.F + cfg.paxWeights.I);
 });
 
+test('extra cabin crew occupies a seat and contributes 75 kg standard weight', () => {
+  const list = passengers(2, 2, 0, 0);
+  list.push({ id: 'crew', name: 'Cabin crew', cat: 'CC', seat: '' });
+  const result = seating.optimize(list, baseInput(), cfg, engine);
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(new Set(result.passengers.map(p => p.seat)).size, 5);
+  assert.ok(result.passengers.find(p => p.cat === 'CC' && p.seat));
+  assert.strictEqual(result.metrics.pax, 2 * cfg.paxWeights.M + 2 * cfg.paxWeights.F + cfg.paxWeights.CC);
+  assert.ok(Math.abs(cfg.paxWeights.CC - 75 * 2.2046226218) < 0.01);
+});
+
+test('lap infant is paired with a passenger, not cabin crew', () => {
+  const list = passengers(1, 0, 0, 1);
+  list.push({ id: 'crew', name: 'Cabin crew', cat: 'CC', seat: '' });
+  const result = seating.optimize(list, baseInput(), cfg, engine);
+  const infant = result.passengers.find(p => p.cat === 'I');
+  const companion = result.passengers.find(p => p.seat === infant.seat && p.cat !== 'I');
+  assert.ok(companion);
+  assert.notStrictEqual(companion.cat, 'CC');
+});
+
 test('15 occupied seats can carry a lap infant without a sixteenth seat', () => {
   const list = passengers(8, 7, 0, 1);
   const result = seating.optimize(list, baseInput(), cfg, engine);
