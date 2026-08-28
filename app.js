@@ -32,6 +32,7 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]; }); }
   function parseSeat(s) { var m = /^([1-5])([ABC])$/i.exec(String(s || '').trim()); return m ? { row: +m[1] - 1, col: 'ABC'.indexOf(m[2].toUpperCase()) } : null; }
   function paxWeight(p) { var w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return CFG.paxWeights[p.cat] || 0; }
+  function isSeatCat(c) { return c === 'M' || c === 'F' || c === 'C'; }
   function categoryCounts() {
     var counts = { M: 0, F: 0, C: 0, I: 0, '?': 0 };
     state.pax.forEach(function (passenger) { counts.hasOwnProperty(passenger.cat) ? counts[passenger.cat]++ : counts['?']++; });
@@ -66,9 +67,7 @@
 
   /* ---------- calculation glue ---------- */
   function buildGrid() {
-    var g = [['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E']];
-    state.pax.forEach(function (p) { var s = parseSeat(p.seat); if (s && isCat(p.cat)) g[s.row][s.col] = paxWeight(p); });
-    return g;
+    return SEATING.seatGrid(state.pax, CFG);
   }
   function engineInput() {
     var a = state.aircraft, fu = state.fuel, c = state.cargo;
@@ -91,14 +90,24 @@
       if (p.weight !== '' && p.weight != null && num(p.weight) <= 0) issues.push({ level: 'red', text: 'Passenger weight overrides must be greater than zero.' });
     });
 
-    var seatUse = {}, dup = false;
-    var needReview = state.pax.filter(function (p) {
-      var ok = isCat(p.cat) && parseSeat(p.seat);
-      if (p.seat) { if (seatUse[p.seat]) dup = true; seatUse[p.seat] = 1; }
-      return !ok;
+    var seatUse = {}, infantUse = {}, dup = false, lapIssue = false;
+    state.pax.filter(function (p) { return p.cat !== 'I'; }).forEach(function (p) {
+      if (!isSeatCat(p.cat) || !parseSeat(p.seat)) return;
+      if (seatUse[p.seat]) dup = true;
+      else seatUse[p.seat] = p;
     });
-    if (needReview.length) issues.push({ level: 'red', text: needReview.length + ' passenger(s) need a category and a valid seat.' });
-    if (dup) issues.push({ level: 'red', text: 'Two passengers share the same seat.' });
+    var needReview = state.pax.filter(function (p) {
+      if (p.cat === 'I') {
+        var companion = p.seat && seatUse[p.seat];
+        if (!companion || (companion.cat !== 'M' && companion.cat !== 'F') || infantUse[p.seat]) { lapIssue = true; return true; }
+        infantUse[p.seat] = p;
+        return false;
+      }
+      return !isSeatCat(p.cat) || !parseSeat(p.seat);
+    });
+    if (needReview.length) issues.push({ level: 'red', text: needReview.length + ' passenger(s) still need a valid category or seating assignment.' });
+    if (dup) issues.push({ level: 'red', text: 'Two seat-occupying passengers share the same seat.' });
+    if (lapIssue) issues.push({ level: 'red', text: 'Each infant must share a different occupied adult seat.' });
 
     var tz = ENG.indexZone(m.to.index, CFG), lz = ENG.indexZone(m.la.index, CFG);
     var toMacOk = ENG.macInLimit(m.to.mac, CFG), laMacOk = ENG.macInLimit(m.la.mac, CFG);
@@ -119,8 +128,10 @@
     var level = hasRed ? 'red' : (hasAmber ? 'amber' : 'green');
     var operational = complete && !hasRed && CFG.meta.verified;
     var canPrintDraft = complete && !hasRed;
-    var paxCount = state.pax.length, paxWt = state.pax.reduce(function (s, p) { return s + paxWeight(p); }, 0);
-    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, paxWt: paxWt };
+    var paxCount = state.pax.length, seatCount = state.pax.filter(function (p) { return p.cat !== 'I'; }).length;
+    var infantCount = state.pax.filter(function (p) { return p.cat === 'I'; }).length;
+    var paxWt = state.pax.reduce(function (s, p) { return s + paxWeight(p); }, 0);
+    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt };
   }
 
   /* ---------- shared UI bits ---------- */
@@ -192,6 +203,12 @@
   function scanPassengerTotal(c) {
     return ['male', 'female', 'child', 'infant', 'unknown'].reduce(function (sum, key) { return sum + Math.max(0, Math.floor(num(c[key]))); }, 0);
   }
+  function scanOccupiedSeats(c) {
+    return ['male', 'female', 'child', 'unknown'].reduce(function (sum, key) { return sum + Math.max(0, Math.floor(num(c[key]))); }, 0);
+  }
+  function scanCanImport(c) {
+    return scanPassengerTotal(c) > 0 && scanOccupiedSeats(c) > 0 && scanOccupiedSeats(c) <= 15 && Math.max(0, Math.floor(num(c.infant))) <= Math.max(0, Math.floor(num(c.male))) + Math.max(0, Math.floor(num(c.female)));
+  }
   function scanCountField(c, key, label, cls) {
     return '<label class="scan-edit ' + cls + '"><span>' + label + '</span><input type="number" min="0" max="15" step="1" inputmode="numeric" data-scan-bind="' + key + '" value="' + Math.max(0, Math.floor(num(c[key]))) + '" aria-label="' + label + ' passenger count"></label>';
   }
@@ -203,7 +220,7 @@
     if (!scanResult) return '';
     var c = scanResult.counts;
     c.total = scanPassengerTotal(c);
-    var usable = c.total > 0 && c.total <= 15;
+    var occupiedSeats = scanOccupiedSeats(c), usable = scanCanImport(c);
     var issueHtml = c.issues && c.issues.length ? '<details class="scan-notes"><summary>Scanner notes</summary><div class="scan-issues">' + c.issues.map(function (issue) { return '<div>' + esc(issue) + '</div>'; }).join('') + '</div></details>' : '';
     var meta = c.meta || {}, load = c.load || {}, evidence = c.evidence || {};
     var metaHtml = (meta.registration || meta.flightNo || meta.route || meta.time) ? '<div class="manifest-id">' +
@@ -221,14 +238,14 @@
       (load.paxWeight !== null ? ' · weight total verified' : '') + '.</p>' : '';
     var buttonText = load.luggage !== null ? 'Use passengers &amp; ' + f(load.luggage) + ' lb luggage' : 'Use detected passengers';
     return '<div class="scan-result">' +
-      '<div class="scan-result-head"><div><span class="section-kicker">Review before importing</span><h3><span id="scanTotal">' + c.total + '</span> passengers</h3></div><span class="confidence ' + (scanResult.ocrConfidence >= 65 ? 'good' : 'review') + '">' + (scanResult.manual ? 'Manual review' : f(scanResult.ocrConfidence) + '% OCR') + '</span></div>' +
+      '<div class="scan-result-head"><div><span class="section-kicker">Review before importing</span><h3><span id="scanTotal">' + c.total + '</span> passengers <small id="scanSeats">· ' + occupiedSeats + ' seats</small></h3></div><span class="confidence ' + (scanResult.ocrConfidence >= 65 ? 'good' : 'review') + '">' + (scanResult.manual ? 'Manual review' : f(scanResult.ocrConfidence) + '% OCR') + '</span></div>' +
       metaHtml +
       '<p class="scan-edit-hint">Correct any value the scanner got wrong. Passenger names are optional.</p>' +
       '<div class="count-editor-grid">' +
-        scanCountField(c, 'male', 'Male', 'cat-M') + scanCountField(c, 'female', 'Female', 'cat-F') + scanCountField(c, 'child', 'Child', 'cat-C') + scanCountField(c, 'infant', 'Infant', 'cat-I') + scanCountField(c, 'unknown', 'Unclear', 'need') +
+        scanCountField(c, 'male', 'Male', 'cat-M') + scanCountField(c, 'female', 'Female', 'cat-F') + scanCountField(c, 'child', 'Child', 'cat-C') + scanCountField(c, 'infant', 'Infant · lap', 'cat-I') + scanCountField(c, 'unknown', 'Unclear', 'need') +
       '</div>' + loadHtml + evidenceHtml + issueHtml +
       '<button id="useScanBtn" class="btn primary block" data-action="useScan"' + (usable ? '' : ' disabled') + '>' + buttonText + '</button>' +
-      '<p class="muted sm" style="margin-bottom:0">Seats will be balanced automatically. Imported luggage starts in Area D—move it to the actual compartment before calculating.</p>' +
+      '<p class="muted sm" style="margin-bottom:0">Infants are placed on an adult passenger’s lap and do not use a separate seat. Imported luggage starts in Area D—move it to the actual compartment before calculating.</p>' +
     '</div>';
   }
   function renderScan() {
@@ -255,18 +272,21 @@
   }
 
   /* ---------- step: Review & Correction ---------- */
-  function seatPaxIndex(label) { for (var i = 0; i < state.pax.length; i++) if (state.pax[i].seat === label) return i; return -1; }
+  function seatPaxIndex(label) { for (var i = 0; i < state.pax.length; i++) if (state.pax[i].seat === label && state.pax[i].cat !== 'I') return i; return -1; }
+  function seatInfants(label) { return state.pax.filter(function (p) { return p.cat === 'I' && p.seat === label; }); }
   function renderSeatMap(readonly) {
     var html = '';
     for (var r = 1; r <= 5; r++) {
       var tiles = ['A', 'B', 'C'].map(function (col) {
-        var label = r + col, idx = seatPaxIndex(label), p = idx >= 0 ? state.pax[idx] : null;
-        var cls = p ? (p.cat === '?' ? 'need' : 'cat-' + p.cat) : 'empty';
-        var glyph = p ? (p.cat === '?' ? '?' : p.cat) : (readonly ? '·' : '+');
-        var inner = '<span class="seat-id">' + label + '</span><span class="seat-cat">' + glyph + '</span>';
+        var label = r + col, idx = seatPaxIndex(label), p = idx >= 0 ? state.pax[idx] : null, infants = seatInfants(label);
+        var cls = p ? (p.cat === '?' ? 'need' : 'cat-' + p.cat) : (infants.length ? 'need' : 'empty');
+        var glyph = p ? (p.cat === '?' ? '?' : p.cat) : (infants.length ? 'I?' : (readonly ? '·' : '+'));
+        var lap = infants.length ? '<span class="seat-lap">+ ' + infants.length + ' infant' + (infants.length > 1 ? 's' : '') + '</span>' : '';
+        var inner = '<span class="seat-id">' + label + '</span><span class="seat-cat">' + glyph + '</span>' + lap;
+        var aria = 'Seat ' + label + (p ? ', ' + CAT_LABEL[p.cat] : ', empty') + (infants.length ? ', with lap infant' : '');
         return readonly
           ? '<div class="seat-tile ro ' + cls + '">' + inner + '</div>'
-          : '<button class="seat-tile ' + cls + '" data-action="cycleSeat" data-seat="' + label + '" aria-label="Seat ' + label + '">' + inner + '</button>';
+          : '<button class="seat-tile ' + cls + '" data-action="cycleSeat" data-seat="' + label + '" aria-label="' + aria + '">' + inner + '</button>';
       }).join('');
       html += '<div class="seat-row"><span class="rl">' + r + '</span><div class="seats3">' + tiles + '</div></div>';
     }
@@ -275,7 +295,8 @@
   function renderCategoryEditor() {
     var counts = categoryCounts();
     function card(cat, label, weight, cls) {
-      return '<div class="pax-count-card ' + cls + '"><div><b>' + label + '</b><span>' + (weight ? weight + ' lb' : 'Set category') + '</span></div>' +
+      var note = cat === 'I' ? weight + ' lb · lap passenger' : (weight ? weight + ' lb' : 'Set category');
+      return '<div class="pax-count-card ' + cls + '"><div><b>' + label + '</b><span>' + note + '</span></div>' +
         '<div class="step-control"><button data-action="adjustCount" data-cat="' + cat + '" data-delta="-1" aria-label="Remove one ' + label + '">&minus;</button>' +
         '<input type="number" min="0" max="15" step="1" inputmode="numeric" data-cat-count="' + cat + '" value="' + counts[cat] + '" aria-label="' + label + ' count">' +
         '<button data-action="adjustCount" data-cat="' + cat + '" data-delta="1" aria-label="Add one ' + label + '">+</button></div></div>';
@@ -293,40 +314,47 @@
     var list = indexed.map(function (o) {
       var p = o.p, i = o.i, need = p.cat === '?';
       var ph = need ? 'wt' : f(CFG.paxWeights[p.cat] || 0);
+      var seatText = p.cat === 'I' ? ('Lap · ' + (p.seat || 'unassigned')) : ((p.seat || '—') + ' ' + (need ? '?' : p.cat));
       return '<div class="paxrow ' + (need ? 'need' : '') + '">' +
-        '<button class="catchip ' + (need ? 'need' : 'cat-' + p.cat) + '" data-action="cycleSeat" data-seat="' + esc(p.seat) + '" aria-label="Change category for ' + esc(p.seat) + '">' + esc(p.seat) + ' ' + (need ? '?' : p.cat) + '</button>' +
-        '<input class="cell name" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="Name (optional)" aria-label="Passenger name for seat ' + esc(p.seat) + '">' +
-        '<input class="cell wt num" type="number" min="1" step="any" inputmode="decimal" data-bind="pax.' + i + '.weight" value="' + (p.weight > 0 ? p.weight : '') + '" placeholder="' + ph + '" aria-label="Weight override for seat ' + esc(p.seat) + '">' +
-        '<button class="iconbtn" data-action="delPax" data-i="' + i + '" aria-label="Remove passenger from seat ' + esc(p.seat) + '">&times;</button>' +
+        '<span class="catchip ' + (need ? 'need' : 'cat-' + p.cat) + '">' + esc(seatText) + '</span>' +
+        '<input class="cell name" data-bind="pax.' + i + '.name" value="' + esc(p.name) + '" placeholder="Name (optional)" aria-label="Passenger name">' +
+        '<input class="cell wt num" type="number" min="1" step="any" inputmode="decimal" data-bind="pax.' + i + '.weight" value="' + (p.weight > 0 ? p.weight : '') + '" placeholder="' + ph + '" aria-label="Passenger weight override">' +
+        '<button class="iconbtn" data-action="delPax" data-i="' + i + '" aria-label="Remove passenger">&times;</button>' +
       '</div>';
     }).join('');
     return '' +
       '<section class="card">' +
-        '<div class="card-head"><div><span class="section-kicker">Passenger totals</span><h2>Who is travelling?</h2></div><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' +
-        '<p class="muted sm" style="margin-top:0">Enter the totals directly or correct the scan. Names are not required.</p>' +
+        '<div class="card-head"><div><span class="section-kicker">Passenger totals</span><h2>Who is travelling?</h2></div><div class="head-chip" id="reviewChip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + c.seatCount + ' seats</b></div></div>' +
+        '<p class="muted sm" style="margin-top:0">Enter the totals directly or correct the scan. Infants share an adult passenger’s seat.</p>' +
         renderCategoryEditor() +
       '</section>' +
       '<section class="card seating-card">' +
         '<div class="card-head"><div><span class="section-kicker">Automatic seating</span><h2>Balanced cabin</h2></div><span class="balance-badge">CG assisted</span></div>' +
         '<p class="muted sm" style="margin-top:0">The app places passengers for a balanced longitudinal load. Tap any seat to make an operational adjustment.</p>' +
         renderSeatMap() +
-        '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">I Infant</span></div>' +
-        (c.needReview.length ? '<div class="banner amber sm">' + c.needReview.length + ' seat(s) marked &quot;?&quot; &mdash; tap to set the category before calculating.</div>' : '') +
+        '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span></div>' +
+        (c.needReview.length ? '<div class="banner amber sm">' + c.needReview.length + ' passenger(s) still need a valid category or lap assignment.</div>' : '') +
         '<button class="btn primary block" data-action="optimizeSeats"' + (state.pax.length && !c.needReview.length ? '' : ' disabled') + '>Balance seats for current load</button>' +
         (list ? '<details class="acc passenger-details"><summary>Passenger details &amp; individual weights <span>Optional</span></summary><div class="paxlist">' + list + '</div></details>' : '<p class="muted sm" style="text-align:center;padding:8px">Enter passenger totals above or tap a seat to begin.</p>') +
         (list ? '<button class="btn subtle block" data-action="clearPax">Clear passengers</button>' : '') +
       '</section>' +
-      '<div class="legend sm muted">Standard weights: M ' + CFG.paxWeights.M + ' / F ' + CFG.paxWeights.F + ' / C ' + CFG.paxWeights.C + ' / I ' + CFG.paxWeights.I + ' lb. The final CG is recalculated after fuel and baggage are entered.</div>';
+      '<div class="legend sm muted">Standard weights: M ' + CFG.paxWeights.M + ' / F ' + CFG.paxWeights.F + ' / C ' + CFG.paxWeights.C + ' / I ' + CFG.paxWeights.I + ' lb. Infant weight is applied at the accompanying adult’s seat arm.</div>';
   }
   function cycleSeat(label) {
-    var order = { '?': 'M', 'M': 'F', 'F': 'C', 'C': 'I', 'I': null };
+    var order = { '?': 'M', 'M': 'F', 'F': 'C', 'C': null };
     var idx = seatPaxIndex(label);
     if (idx < 0) {
-      if (state.pax.length >= 15) { toast('All 15 seats are taken.'); return; }
+      if (state.pax.filter(function (p) { return p.cat !== 'I'; }).length >= 15) { toast('All 15 seats are taken.'); return; }
       state.pax.push({ id: uid(), name: '', cat: 'M', seat: label });
     } else {
       var cur = state.pax[idx].cat, nxt = order.hasOwnProperty(cur) ? order[cur] : 'M';
-      if (nxt === null) state.pax.splice(idx, 1); else state.pax[idx].cat = nxt;
+      if (nxt === null) {
+        state.pax.splice(idx, 1);
+        state.pax.forEach(function (p) { if (p.cat === 'I' && p.seat === label) p.seat = ''; });
+      } else {
+        state.pax[idx].cat = nxt;
+        if (nxt === 'C') state.pax.forEach(function (p) { if (p.cat === 'I' && p.seat === label) p.seat = ''; });
+      }
     }
     render();
   }
@@ -334,9 +362,9 @@
     if (!CAT_LABEL.hasOwnProperty(cat)) return;
     var target = Math.max(0, Math.min(15, Math.floor(num(requested))));
     var current = state.pax.filter(function (passenger) { return passenger.cat === cat; }).length;
-    var other = state.pax.length - current;
-    if (target + other > 15) {
-      target = 15 - other;
+    var otherSeats = state.pax.filter(function (passenger) { return passenger.cat !== 'I' && passenger.cat !== cat; }).length;
+    if (cat !== 'I' && target + otherSeats > 15) {
+      target = 15 - otherSeats;
       toast('The cabin is limited to 15 passenger seats.');
     }
     if (target < current) {
@@ -351,7 +379,10 @@
   }
   function centerOutArrangement() {
     var order = ['3B','3A','3C','2B','4B','2A','2C','4A','4C','1B','5B','1A','1C','5A','5C'];
-    state.pax.forEach(function (passenger, index) { passenger.seat = order[index] || ''; });
+    var occupants = state.pax.filter(function (p) { return p.cat !== 'I'; });
+    occupants.forEach(function (passenger, index) { passenger.seat = order[index] || ''; });
+    var adults = occupants.filter(function (p) { return p.cat === 'M' || p.cat === 'F'; });
+    state.pax.filter(function (p) { return p.cat === 'I'; }).forEach(function (infant, index) { infant.seat = adults[index] ? adults[index].seat : ''; });
   }
   function arrangeSeats(silent) {
     if (!state.pax.length) { if (!silent) toast('Enter passenger totals first.'); render(); return false; }
@@ -366,7 +397,7 @@
       if (!silent) toast(result.reason || 'Seats could not be balanced.');
       render(); return false;
     }
-    state.pax = result.passengers.sort(function (a, b) { return SEATS.indexOf(a.seat) - SEATS.indexOf(b.seat); });
+    state.pax = result.passengers.sort(function (a, b) { var seatDiff = SEATS.indexOf(a.seat) - SEATS.indexOf(b.seat); return seatDiff || ((a.cat === 'I' ? 1 : 0) - (b.cat === 'I' ? 1 : 0)); });
     if (!silent) {
       var mac = result.metrics && result.metrics.to ? f(result.metrics.to.mac, 1) + '% MAC' : 'the current load';
       toast('Seats balanced for ' + mac + '. Verify any operational seating restrictions.');
@@ -420,7 +451,7 @@
       '</section>' +
       (!CFG.meta.verified ? '<div class="notice unverified strong"><b>Not for operational use</b><span>The configured envelope and aircraft constants are still unverified.</span></div>' : '') +
       '<section class="card"><div class="section-title"><div><span class="section-kicker">Takeoff and landing</span><h2>CG envelope</h2></div></div>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">' + (CFG.meta.verified ? 'Approved' : 'Prototype') + ' band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC · MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
-      '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">I Infant</span></div></section>' +
+      '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + c.seatCount + ' seats</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span></div></section>' +
       '<section class="card">' +
         '<div class="section-title"><div><span class="section-kicker">Load summary</span><h2>Weight and balance</h2></div></div>' +
         '<div class="stat-grid-3">' +
@@ -517,7 +548,7 @@
   function doDeletePreset(sel) { var r = sel || (state.aircraft.reg || '').trim().toUpperCase(); var p = presets(); if (!p[r]) return toast('Select a saved aircraft to delete.'); delete p[r]; savePresets(p); toast('Deleted ' + r + '.'); render(); }
 
   /* ---------- passengers ---------- */
-  function delPax(i) { state.pax.splice(i, 1); render(); }
+  function delPax(i) { state.pax.splice(i, 1); if (state.pax.length) arrangeSeats(true); else render(); }
 
   /* ---------- OCR ---------- */
   var selectedFiles = [], selectedPreviewUrls = [], scanResult = null, ocrWorker = null, ocrBusy = false;
@@ -698,7 +729,8 @@
     if (!c) return toast('No passengers were detected. Enter them manually or try another scan.');
     c.total = scanPassengerTotal(c);
     if (!c.total) return toast('No passengers were detected. Enter them manually or try another scan.');
-    if (c.total > 15) return toast('Detected count exceeds the 15-seat cabin. Check the manifest text before continuing.');
+    if (scanOccupiedSeats(c) > 15) return toast('More than 15 passengers require seats. Correct the category totals before continuing.');
+    if (num(c.infant) > num(c.male) + num(c.female)) return toast('Each infant needs a separate accompanying adult. Correct the category totals.');
     if (Array.isArray(c.passengers) && c.passengers.length === c.total) {
       list = c.passengers.map(function (passenger) { return passenger.cat || '?'; });
     } else {
@@ -708,7 +740,7 @@
       for (i = 0; i < (c.infant || 0); i++) list.push('I');
       for (i = 0; i < (c.unknown || 0); i++) list.push('?');
     }
-    if (list.length > 15) return toast('Passenger categories exceed the 15-seat cabin. Review the detected text.');
+    if (list.filter(function (cat) { return cat !== 'I'; }).length > 15) return toast('Passenger categories require more than 15 seats. Review the detected totals.');
     state.pax = list.map(function (cat, idx) {
       var detected = c.passengers && c.passengers[idx];
       return { id: uid(), name: detected && detected.name ? detected.name : '', cat: cat, seat: '' };
@@ -724,7 +756,7 @@
       if (c.meta.route) state.flight.route = c.meta.route;
     }
     arrangeSeats(true);
-    toast('Loaded and balanced ' + list.length + ' passengers' + (c.load && c.load.luggage !== null ? ' with ' + f(c.load.luggage) + ' lb luggage' : '') +
+    toast('Loaded ' + list.length + ' passengers into ' + scanOccupiedSeats(c) + ' seats' + (c.load && c.load.luggage !== null ? ' with ' + f(c.load.luggage) + ' lb luggage' : '') +
       (c.load && c.load.eic > 0 ? '. EIC was not assigned—enter it at the approved station.' : '. Review the seats and baggage station.'));
     go(2);
   }
@@ -740,7 +772,7 @@
     if (!c.canPrintDraft) return toast('Correct all red issues before printing.');
     var m = c.m, s = statusWord(c.level, c.complete), now = new Date().toLocaleString();
     function rows(title, arr) { return '<div class="ps-sec"><h3>' + title + '</h3>' + arr.map(function (r) { return '<div class="ps-row"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>'; }).join('') + '</div>'; }
-    var paxRows = state.pax.map(function (p, index) { return '<div class="ps-row"><span>' + esc(p.name || ('Passenger ' + (index + 1))) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(p.seat || '—') + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
+    var paxRows = state.pax.map(function (p, index) { var seatLabel = p.cat === 'I' ? ('Lap at ' + (p.seat || 'unassigned')) : (p.seat || '—'); return '<div class="ps-row"><span>' + esc(p.name || ('Passenger ' + (index + 1))) + ' · ' + (CAT_LABEL[p.cat] || '?') + ' · ' + esc(seatLabel) + '</span><b>' + (p.cat === '?' ? '—' : f(paxWeight(p)) + ' lb') + '</b></div>'; }).join('');
     $('printSheet').innerHTML =
       (!CFG.meta.verified ? '<div class="ps-watermark">UNVERIFIED · REVIEW DRAFT · NOT FOR OPERATIONAL USE</div>' : '') +
       '<div class="ps-head"><div><div class="ps-title">DHC-6 CG / ' + (CFG.meta.verified ? 'LOAD SHEET' : 'REVIEW DRAFT') + '</div><div class="ps-sub">Weight &amp; Balance Summary</div></div>' +
@@ -752,7 +784,7 @@
         rows('Takeoff CG', [['Arm', f(m.to.arm, 2)], ['Index', f(m.to.index, 2)], ['%MAC', f(m.to.mac, 2)]]) +
         rows('Landing CG', [['Arm', f(m.la.arm, 2)], ['Index', f(m.la.index, 2)], ['%MAC', f(m.la.mac, 2)]]) +
       '</div>' +
-      '<div class="ps-sec"><h3>Passengers (' + c.paxCount + ' · ' + f(c.paxWt) + ' lb)</h3>' + (paxRows || '<div class="ps-row"><span>None</span><b>—</b></div>') + '</div>' +
+      '<div class="ps-sec"><h3>Passengers (' + c.paxCount + ' persons · ' + c.seatCount + ' seats · ' + f(c.paxWt) + ' lb)</h3>' + (paxRows || '<div class="ps-row"><span>None</span><b>—</b></div>') + '</div>' +
       rows('Baggage / Cargo', [['Stretcher', f(num(state.cargo.stretcher)) + ' lb'], ['Seat row 4', f(num(state.cargo.bagR4)) + ' lb'], ['Seat row 5', f(num(state.cargo.bagR5)) + ' lb'], ['Area D', f(num(state.cargo.bagD)) + ' lb'], ['Aft compartment', f(num(state.cargo.bagAft)) + ' lb'], ['Aft shelf', f(num(state.cargo.bagShelf)) + ' lb']]) +
       '<div class="ps-sec"><h3>Remarks</h3><div class="ps-row"><span>' + (esc(state.flight.remarks) || '—') + '</span></div></div>' +
       '<div class="ps-note">' + (CFG.meta.verified ? '' : 'UNVERIFIED REVIEW DRAFT — NOT FOR OPERATIONAL USE. ') + 'Verify all loading, fuel, CG/index and limits against approved aircraft / operator documents.</div>' +
@@ -789,9 +821,10 @@
       counts.passengers = undefined;
       scanResult.manual = true;
       var totalEl = $('scanTotal'); if (totalEl) totalEl.textContent = counts.total;
+      var seatsEl = $('scanSeats'); if (seatsEl) seatsEl.textContent = '· ' + scanOccupiedSeats(counts) + ' seats';
       var unknownInput = document.querySelector('[data-scan-bind="unknown"]'); if (unknownInput && scanBind !== 'unknown') unknownInput.value = counts.unknown;
       var useButton = $('useScanBtn');
-      if (useButton) useButton.disabled = !(counts.total > 0 && counts.total <= 15);
+      if (useButton) useButton.disabled = !scanCanImport(counts);
       return;
     }
     if (scanResult && scanLoadBind) {
@@ -805,7 +838,7 @@
     if (el.hasAttribute('data-rerender')) { render(); return; }
     save();
     if (state.step === 0) { var hero = document.getElementById('dashHero'); if (hero) hero.outerHTML = renderHero(); }
-    else if (state.step === 2) { var chip = document.getElementById('reviewChip'); if (chip) { var cc = compute(); chip.innerHTML = '<b>' + cc.paxCount + ' pax</b> · <b>' + f(cc.paxWt) + ' lb</b>'; } }
+    else if (state.step === 2) { var chip = document.getElementById('reviewChip'); if (chip) { var cc = compute(); chip.innerHTML = '<b>' + cc.paxCount + ' pax</b> · <b>' + cc.seatCount + ' seats</b>'; } }
     else if (state.step === 3) { var live = document.querySelector('.live'); if (live) live.outerHTML = liveSummary(); }
   }
   function onClick(e) {

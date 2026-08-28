@@ -27,10 +27,18 @@
 
   function seatGrid(passengers, cfg) {
     var grid = [['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E'], ['E', 'E', 'E']];
-    passengers.forEach(function (passenger) {
+    passengers.filter(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C'; }).forEach(function (passenger) {
       var match = /^([1-5])([ABC])$/.exec(String(passenger.seat || '').toUpperCase());
       if (!match) return;
       grid[+match[1] - 1]['ABC'.indexOf(match[2])] = passengerWeight(passenger, cfg);
+    });
+    // A lap infant contributes weight at the accompanying passenger's arm but
+    // does not occupy or overwrite a separate cabin seat.
+    passengers.filter(function (passenger) { return passenger.cat === 'I'; }).forEach(function (passenger) {
+      var match = /^([1-5])([ABC])$/.exec(String(passenger.seat || '').toUpperCase());
+      if (!match) return;
+      var row = +match[1] - 1, col = 'ABC'.indexOf(match[2]), occupantWeight = grid[row][col];
+      if (typeof occupantWeight === 'number' && occupantWeight > 0) grid[row][col] += passengerWeight(passenger, cfg);
     });
     return grid;
   }
@@ -135,16 +143,38 @@
   }
 
   function optimize(passengers, input, cfg, engine) {
-    var known = passengers.filter(function (passenger) { return cfg.paxWeights[passenger.cat] > 0 || passengerWeight(passenger, cfg) > 0; });
-    if (!known.length || known.length !== passengers.length || known.length > 15) return { passengers: passengers.slice(), changed: false, reason: 'Passenger categories are incomplete.' };
-    var target = desiredPassengerMoment(known, input, cfg, engine);
+    var occupants = passengers.filter(function (passenger) { return passenger.cat !== 'I'; });
+    var infants = passengers.filter(function (passenger) { return passenger.cat === 'I'; });
+    var categoriesComplete = occupants.every(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C'; });
+    if (!occupants.length || !categoriesComplete) return { passengers: passengers.slice(), changed: false, reason: 'Passenger categories are incomplete.' };
+    if (occupants.length > 15) return { passengers: passengers.slice(), changed: false, reason: 'More than 15 occupied seats were entered.' };
+
+    // Each infant is paired with one adult passenger. Pairing is automatic
+    // because passenger names are optional; the seat can still be changed by
+    // moving the accompanying adult in the cabin view.
+    var units = occupants.map(function (passenger) {
+      return { cat: passenger.cat, weight: passengerWeight(passenger, cfg), basePassenger: passenger, lapInfants: [] };
+    });
+    var adultUnits = units.filter(function (unit) { return unit.cat === 'M' || unit.cat === 'F'; });
+    if (infants.length > adultUnits.length) return { passengers: passengers.slice(), changed: false, reason: 'Each infant needs a separate accompanying adult.' };
+    infants.forEach(function (infant, index) {
+      adultUnits[index].lapInfants.push(infant);
+      adultUnits[index].weight += passengerWeight(infant, cfg);
+    });
+
+    var target = desiredPassengerMoment(units, input, cfg, engine);
     var best = null;
 
-    enumerateRowCounts(known.length).forEach(function (counts) {
+    enumerateRowCounts(units.length).forEach(function (counts) {
       var positions = positionsForCounts(counts, cfg);
       [false, true].forEach(function (reverse) {
-        var paired = pairForTarget(known, positions, target, cfg, reverse);
-        var candidate = paired.pairs.map(function (pair) { return Object.assign({}, pair.passenger, { seat: pair.position.label }); });
+        var paired = pairForTarget(units, positions, target, cfg, reverse);
+        var candidate = [];
+        paired.pairs.forEach(function (pair) {
+          var seat = pair.position.label, unit = pair.passenger;
+          candidate.push(Object.assign({}, unit.basePassenger, { seat: seat }));
+          unit.lapInfants.forEach(function (infant) { candidate.push(Object.assign({}, infant, { seat: seat })); });
+        });
         var evaluated = assignmentScore(candidate, input, cfg, engine);
         // A tiny compactness tie-breaker avoids awkward edge-heavy plans when
         // two arrangements give effectively identical longitudinal CG.

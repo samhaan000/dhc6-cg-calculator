@@ -35,6 +35,7 @@ const $ = id => document.getElementById(id);
 const q = sel => document.querySelector(sel);
 const qa = sel => Array.prototype.slice.call(document.querySelectorAll(sel));
 function setVal(el, v) { el.value = v; el.dispatchEvent(new window.Event('input', { bubbles: true })); }
+function changeVal(el, v) { el.value = v; el.dispatchEvent(new window.Event('change', { bubbles: true })); }
 function click(el) { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }
 function actionBtn(a) { return q('[data-action="' + a + '"]'); }
 
@@ -96,6 +97,14 @@ test('seat optimizer action keeps every passenger in a unique seat', () => {
   const occupied = qa('.seat-tile:not(.empty)');
   if (occupied.length !== 2) throw new Error('optimizer lost or duplicated a passenger');
   if (new Set(occupied.map(el => el.getAttribute('data-seat'))).size !== 2) throw new Error('optimizer reused a seat');
+});
+
+test('adding an infant keeps the occupied-seat count unchanged', () => {
+  changeVal(q('[data-cat-count="I"]'), '1');
+  const occupied = qa('.seat-tile:not(.empty)');
+  if (occupied.length !== 2) throw new Error('lap infant consumed a separate seat');
+  if (!q('.seat-lap')) throw new Error('lap infant is not shown with an adult seat');
+  if (!/3 pax/.test($('reviewChip').textContent) || !/2 seats/.test($('reviewChip').textContent)) throw new Error('passenger/seat totals are wrong');
 });
 
 test('per-passenger weight override works', () => {

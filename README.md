@@ -30,8 +30,10 @@ is parsed by `WBParsers`; nothing is silently accepted. Structured resort
 manifests are rebuilt from OCR word positions so the app can read passenger
 names, ticket rows, passenger weights and luggage totals. Detected category and
 load totals are editable before import, so a faint gender column never blocks
-the workflow. Passenger names are optional. The seating optimizer creates a
-balanced initial cabin and can be run again after fuel and baggage are entered;
+the workflow. Passenger names are optional. Infants are attached to an occupied
+adult seat as lap passengers: their weight is included at that seat arm without
+using another cabin seat. The seating optimizer creates a balanced initial
+cabin and can be run again after fuel and baggage are entered;
 the completed load is still checked against every configured CG and weight limit.
 Category totals are cross-checked against the printed passenger-weight total;
 unclear passengers are flagged and counts above the 15-seat capacity are blocked.

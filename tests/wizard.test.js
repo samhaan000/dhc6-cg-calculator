@@ -4,6 +4,7 @@ const assert = require('assert');
 const cfg = require('../config.js');
 const { computeMetrics } = require('../engine.js');
 const parsers = require('../parsers.js');
+const seating = require('../seating.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -11,14 +12,8 @@ function test(name, fn) {
   catch (e) { console.error('  FAIL- ' + name + '\n        ' + e.message); process.exitCode = 1; }
 }
 
-// mirrors app.js buildGrid()/parseSeat()/paxWeight()
-function parseSeat(s) { const m = /^([1-5])([ABC])$/i.exec(String(s || '').trim()); return m ? { row: +m[1] - 1, col: 'ABC'.indexOf(m[2].toUpperCase()) } : null; }
-function isCat(c) { return c === 'M' || c === 'F' || c === 'C' || c === 'I'; }
-function paxWeight(p) { const w = p && p.weight; if (w != null && w !== '' && isFinite(w) && +w > 0) return +w; return cfg.paxWeights[p.cat] || 0; }
 function buildGrid(pax) {
-  const g = [['E','E','E'],['E','E','E'],['E','E','E'],['E','E','E'],['E','E','E']];
-  pax.forEach(p => { const s = parseSeat(p.seat); if (s && isCat(p.cat)) g[s.row][s.col] = paxWeight(p); });
-  return g;
+  return seating.seatGrid(pax, cfg);
 }
 
 console.log('Wizard integration tests');
@@ -40,10 +35,11 @@ test('needs-review passengers (no seat / unknown cat) are excluded from the grid
   assert.strictEqual(m.pax, 189);     // only the valid passenger contributes
 });
 
-test('override weights and infant category flow through to the engine', () => {
-  const pax = [{ cat: 'M', seat: '1A', weight: 205 }, { cat: 'I', seat: '1B' }, { cat: 'F', seat: '2A' }];
+test('lap infant weight is applied at the accompanying adult seat arm', () => {
+  const pax = [{ cat: 'M', seat: '1A', weight: 205 }, { cat: 'I', seat: '1A' }, { cat: 'F', seat: '2A' }];
   const m = computeMetrics({ seats: buildGrid(pax), dow: 9142, doi: 13.8 }, cfg);
   assert.strictEqual(m.pax, 205 + cfg.paxWeights.I + cfg.paxWeights.F);
+  assert.strictEqual(m.pm, (205 + cfg.paxWeights.I) * cfg.seatArms[0] + cfg.paxWeights.F * cfg.seatArms[1]);
 });
 
 test('OCR parser returns categories, totals and confidence', () => {
@@ -107,6 +103,18 @@ test('infants remain a separate category', () => {
   assert.strictEqual(c.male, 1);
   assert.strictEqual(c.infant, 1);
   assert.strictEqual(c.total, 2);
+});
+
+test('15 occupied seats plus a lap infant do not trigger a seat-capacity issue', () => {
+  const c = parsers.parseManifestCounts('TOTAL PAX 16\nMALE 8\nFEMALE 7\nINFANT 1');
+  assert.strictEqual(c.total, 16);
+  assert.strictEqual(c.infant, 1);
+  assert.ok(!c.issues.some(issue => /15 cabin seats|15-seat cabin/i.test(issue)));
+});
+
+test('more infants than adults is surfaced for review', () => {
+  const c = parsers.parseManifestCounts('TOTAL PAX 4\nMALE 1\nINFANT 3');
+  assert.ok(c.issues.some(issue => /accompanying adult/i.test(issue)));
 });
 
 test('resort manifest table uses ticket rows and weight totals to recover the full load', () => {

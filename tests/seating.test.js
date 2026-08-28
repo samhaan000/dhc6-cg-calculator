@@ -75,6 +75,32 @@ test('actual passenger weights are preserved', () => {
   assert.strictEqual(result.metrics.pax, 225 + cfg.paxWeights.M + 2 * cfg.paxWeights.F);
 });
 
+test('lap infant shares an adult seat and does not consume another seat', () => {
+  const list = passengers(2, 2, 0, 1);
+  const result = seating.optimize(list, baseInput(), cfg, engine);
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(result.passengers.length, 5);
+  const occupants = result.passengers.filter(p => p.cat !== 'I');
+  const infant = result.passengers.find(p => p.cat === 'I');
+  assert.strictEqual(new Set(occupants.map(p => p.seat)).size, 4);
+  assert.ok(occupants.some(p => (p.cat === 'M' || p.cat === 'F') && p.seat === infant.seat));
+  assert.strictEqual(result.metrics.pax, 2 * cfg.paxWeights.M + 2 * cfg.paxWeights.F + cfg.paxWeights.I);
+});
+
+test('15 occupied seats can carry a lap infant without a sixteenth seat', () => {
+  const list = passengers(8, 7, 0, 1);
+  const result = seating.optimize(list, baseInput(), cfg, engine);
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(new Set(result.passengers.filter(p => p.cat !== 'I').map(p => p.seat)).size, 15);
+  assert.ok(result.passengers.find(p => p.cat === 'I').seat);
+});
+
+test('one adult cannot be assigned multiple lap infants', () => {
+  const result = seating.optimize(passengers(1, 0, 0, 2), baseInput(), cfg, engine);
+  assert.strictEqual(result.changed, false);
+  assert.match(result.reason, /each infant/i);
+});
+
 test('unclear categories block CG optimization instead of being guessed', () => {
   const list = passengers(2, 1, 0, 0);
   list.push({ id: 'unknown', cat: '?', seat: '' });

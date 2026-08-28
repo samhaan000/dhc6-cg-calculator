@@ -122,7 +122,7 @@
 
   function solveCategoryCounts(total, paxWeight, weights, minimums) {
     total = Math.round(+total || 0); paxWeight = Math.round(+paxWeight || 0);
-    if (!total || total > 15 || !paxWeight || !weights) return null;
+    if (!total || total > 30 || !paxWeight || !weights) return null;
     minimums = minimums || {};
     var solutions = [], m, f, c, inf;
     for (m = minimums.M || 0; m <= total; m++) {
@@ -415,7 +415,8 @@
       unknown += reportedTotal - detected;
       detected = classified + unknown;
     }
-    if (total > 15 || detected > 15) issues.push('Detected passenger count exceeds the 15-seat cabin capacity.');
+    if (male + female + child + unknown > 15) issues.push('Detected categories require more than 15 cabin seats.');
+    if (infant > male + female) issues.push('Each infant needs a separate accompanying adult.');
     if (!raw) issues.push('No OCR text was produced.');
     else if (!total && !Object.values(load).some(function (value) { return value !== null; })) issues.push('No passenger rows or totals could be identified.');
 
@@ -598,7 +599,8 @@
     result.issues = (result.issues || []).filter(function (issue) {
       return !/No passenger rows|Category counts|reported total/i.test(issue);
     });
-    if (result.total > 15) result.issues.push('Detected passenger count exceeds the 15-seat cabin capacity.');
+    if (result.male + result.female + result.child + result.unknown > 15 && !result.issues.some(function (issue) { return /15 cabin seats/i.test(issue); })) result.issues.push('Detected categories require more than 15 cabin seats.');
+    if (result.infant > result.male + result.female && !result.issues.some(function (issue) { return /accompanying adult/i.test(issue); })) result.issues.push('Each infant needs a separate accompanying adult.');
     if (result.unknown) result.issues.push(result.unknown + ' passenger row(s) still need category review.');
     result.consistent = result.issues.length === 0;
     return result;
