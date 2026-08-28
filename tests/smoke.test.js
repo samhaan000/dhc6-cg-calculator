@@ -79,6 +79,7 @@ test('review step has a tappable seat map', () => {
   if (!/Who is travelling\?|Balanced cabin/.test($('view').innerHTML)) throw new Error('not on seating step');
   if (!q('[data-action="cycleSeat"]')) throw new Error('no seat map');
   if (!q('[data-cat-count="M"]') || !actionBtn('optimizeSeats')) throw new Error('manual totals or optimizer missing');
+  if (!q('[data-preferred-index]') || !q('[data-action="setPreferredIndex"]')) throw new Error('preferred index control missing');
 });
 
 test('tapping a seat adds a passenger and cycles its category', () => {
@@ -93,10 +94,12 @@ test('tapping a seat adds a passenger and cycles its category', () => {
 });
 
 test('seat optimizer action keeps every passenger in a unique seat', () => {
+  setVal(q('[data-preferred-index]'), '9.5');
   click(actionBtn('optimizeSeats'));
   const occupied = qa('.seat-tile:not(.empty)');
   if (occupied.length !== 2) throw new Error('optimizer lost or duplicated a passenger');
   if (new Set(occupied.map(el => el.getAttribute('data-seat'))).size !== 2) throw new Error('optimizer reused a seat');
+  if (!/9\.5/.test(q('.index-target-value').textContent)) throw new Error('preferred index was not retained');
 });
 
 test('adding an infant keeps the occupied-seat count unchanged', () => {
@@ -128,6 +131,7 @@ test('results step shows a status banner and CG envelope chart', () => {
   if (!q('svg.chart')) throw new Error('no CG envelope chart');
   if (!/% MAC/.test(html)) throw new Error('no %MAC output');
   if (!q('.seat-tile.ro')) throw new Error('no read-only cabin layout on results');
+  if (!/Preferred TO index/.test(html) || !/Achieved/.test(html)) throw new Error('preferred/achieved index summary missing');
 });
 
 test('export builds a load sheet without error', () => {

@@ -78,21 +78,25 @@
     return ((((doi - ix.base) * ix.scale) / dow) + ix.refArm) * dow;
   }
 
-  function desiredPassengerMoment(passengers, input, cfg, engine) {
+  function desiredPassengerMoment(passengers, input, cfg, engine, preferredIndex) {
     var totalPassengerWeight = passengers.reduce(function (sum, passenger) { return sum + passengerWeight(passenger, cfg); }, 0);
     if (!(number(input.dow) > 0)) return totalPassengerWeight * cfg.seatArms[2];
 
     var emptyInput = Object.assign({}, input, { seats: [['E','E','E'],['E','E','E'],['E','E','E'],['E','E','E'],['E','E','E']] });
     var base = engine.computeMetrics(emptyInput, cfg);
-    var targetMac = (cfg.limits.cgFwd + cfg.limits.cgAft) / 2;
-    var targetArm = ((targetMac - cfg.mac.base) / cfg.mac.factor) + cfg.mac.refArm;
     var passengerTotal = totalPassengerWeight;
     var tow = base.tow + passengerTotal, lw = base.lw + passengerTotal;
     var toOtherMoment = dryMoment(input, cfg) + base.bm + base.tof * cfg.fuel.arm;
     var laOtherMoment = dryMoment(input, cfg) + base.bm + base.lf * cfg.fuel.arm;
+    if (!(tow > 0) || !(lw > 0)) return passengerTotal * cfg.seatArms[2];
+    if (isFinite(preferredIndex) && preferredIndex !== null) {
+      var preferredArm = (((+preferredIndex - cfg.index.base) * cfg.index.scale) / tow) + cfg.index.refArm;
+      return preferredArm * tow - toOtherMoment;
+    }
+    var targetMac = (cfg.limits.cgFwd + cfg.limits.cgAft) / 2;
+    var targetArm = ((targetMac - cfg.mac.base) / cfg.mac.factor) + cfg.mac.refArm;
     var toTarget = targetArm * tow - toOtherMoment;
     var laTarget = targetArm * lw - laOtherMoment;
-    if (!(tow > 0) || !(lw > 0)) return passengerTotal * cfg.seatArms[2];
     var toWeight = 1 / (tow * tow), laWeight = 1 / (lw * lw);
     return (toTarget * toWeight + laTarget * laWeight) / (toWeight + laWeight);
   }
@@ -128,21 +132,32 @@
     return { pairs: pairs, moment: moment };
   }
 
-  function assignmentScore(passengers, input, cfg, engine) {
+  function assignmentScore(passengers, input, cfg, engine, preferredIndex) {
     var metrics = engine.computeMetrics(Object.assign({}, input, { seats: seatGrid(passengers, cfg) }), cfg);
     var midpoint = (cfg.limits.cgFwd + cfg.limits.cgAft) / 2;
-    var score = Math.pow(metrics.to.mac - midpoint, 2) + Math.pow(metrics.la.mac - midpoint, 2);
+    var hasPreference = isFinite(preferredIndex) && preferredIndex !== null;
+    var score = hasPreference
+      ? Math.pow(metrics.to.index - preferredIndex, 2) * 200 + Math.pow(metrics.la.mac - midpoint, 2) * 0.25
+      : Math.pow(metrics.to.mac - midpoint, 2) + Math.pow(metrics.la.mac - midpoint, 2);
+    var hardSafety = 0, cautions = 0;
     [metrics.to, metrics.la].forEach(function (cg) {
-      if (cg.mac < cfg.limits.cgFwd) score += 10000 + Math.pow(cfg.limits.cgFwd - cg.mac, 2) * 100;
-      if (cg.mac > cfg.limits.cgAft) score += 10000 + Math.pow(cg.mac - cfg.limits.cgAft, 2) * 100;
+      if (cg.mac < cfg.limits.cgFwd) hardSafety += 1 + Math.pow(cfg.limits.cgFwd - cg.mac, 2);
+      if (cg.mac > cfg.limits.cgAft) hardSafety += 1 + Math.pow(cg.mac - cfg.limits.cgAft, 2);
       var zone = engine.indexZone(cg.index, cfg);
-      if (zone.level === 'red') score += 2500;
-      else if (zone.level === 'amber') score += 150;
+      if (zone.level === 'red') hardSafety += 1;
+      else if (zone.level === 'amber') cautions += 1;
     });
+    // Safety is lexicographically more important than matching a preference:
+    // first avoid red limits, then avoid caution zones, then approach the
+    // pilot's requested takeoff index.
+    score += hardSafety * 1000000000 + cautions * 1000000;
     return { score: score, metrics: metrics };
   }
 
-  function optimize(passengers, input, cfg, engine) {
+  function optimize(passengers, input, cfg, engine, options) {
+    options = options || {};
+    var preferredIndex = options.preferredIndex;
+    preferredIndex = preferredIndex !== '' && preferredIndex !== null && preferredIndex !== undefined && isFinite(+preferredIndex) ? +preferredIndex : null;
     var occupants = passengers.filter(function (passenger) { return passenger.cat !== 'I'; });
     var infants = passengers.filter(function (passenger) { return passenger.cat === 'I'; });
     var categoriesComplete = occupants.every(function (passenger) { return passenger.cat === 'M' || passenger.cat === 'F' || passenger.cat === 'C'; });
@@ -162,7 +177,7 @@
       adultUnits[index].weight += passengerWeight(infant, cfg);
     });
 
-    var target = desiredPassengerMoment(units, input, cfg, engine);
+    var target = desiredPassengerMoment(units, input, cfg, engine, preferredIndex);
     var best = null;
 
     enumerateRowCounts(units.length).forEach(function (counts) {
@@ -175,7 +190,7 @@
           candidate.push(Object.assign({}, unit.basePassenger, { seat: seat }));
           unit.lapInfants.forEach(function (infant) { candidate.push(Object.assign({}, infant, { seat: seat })); });
         });
-        var evaluated = assignmentScore(candidate, input, cfg, engine);
+        var evaluated = assignmentScore(candidate, input, cfg, engine, preferredIndex);
         // A tiny compactness tie-breaker avoids awkward edge-heavy plans when
         // two arrangements give effectively identical longitudinal CG.
         var compactness = counts.reduce(function (sum, count, row) { return sum + count * Math.abs(row - 2); }, 0) * 0.0001;
@@ -185,7 +200,7 @@
     });
 
     if (!best) return { passengers: passengers.slice(), changed: false, reason: 'No valid 15-seat arrangement was found.' };
-    return { passengers: best.passengers, changed: true, metrics: best.metrics, targetMoment: target };
+    return { passengers: best.passengers, changed: true, metrics: best.metrics, targetMoment: target, preferredIndex: preferredIndex, achievedIndex: best.metrics.to.index };
   }
 
   return { optimize: optimize, seatGrid: seatGrid, passengerWeight: passengerWeight, enumerateRowCounts: enumerateRowCounts };

@@ -20,6 +20,7 @@
     flight: { no: '', route: '', remarks: '' },
     fuel: { block: 0, trip: 0 },
     cargo: { stretcher: 0, bagR4: 0, bagR5: 0, bagD: 0, bagAft: 0, bagShelf: 0 },
+    preferences: { preferredIndex: '' },
     pax: [],
     ocrText: ''
   };
@@ -56,6 +57,7 @@
         state.flight = Object.assign(state.flight, saved.flight || {});
         state.fuel = Object.assign(state.fuel, saved.fuel || {});
         state.cargo = Object.assign(state.cargo, saved.cargo || {});
+        state.preferences = Object.assign(state.preferences, saved.preferences || {});
         state.pax = Array.isArray(saved.pax) ? saved.pax : [];
         state.step = 0;
       }
@@ -73,6 +75,14 @@
     var a = state.aircraft, fu = state.fuel, c = state.cargo;
     return { seats: buildGrid(), dow: num(a.dow), doi: num(a.doi), block: num(fu.block), trip: num(fu.trip), stretcher: num(c.stretcher), bagD: num(c.bagD), bagAft: num(c.bagAft), bagShelf: num(c.bagShelf), bagR5: num(c.bagR5), bagR4: num(c.bagR4) };
   }
+  function preferredIndexValue() {
+    var raw = state.preferences && state.preferences.preferredIndex;
+    if (raw === '' || raw === null || raw === undefined || !isFinite(+raw)) return null;
+    return +raw;
+  }
+  function preferredIndexIsValid(value) {
+    return value === null || (value >= CFG.indexZones.min && value <= CFG.indexZones.max);
+  }
   function compute() {
     var input = engineInput();
     var m = ENG.computeMetrics(input, CFG);
@@ -82,6 +92,8 @@
     if (num(a.doi) === 0) issues.push({ level: 'red', text: 'Enter aircraft DOI.' });
     if (!(num(state.fuel.block) > 0)) issues.push({ level: 'red', text: 'Enter block fuel.' });
     if (!state.pax.length) issues.push({ level: 'amber', text: 'No passengers added.' });
+    var preferredIndex = preferredIndexValue();
+    if (!preferredIndexIsValid(preferredIndex)) issues.push({ level: 'red', text: 'Preferred index must be between ' + f(CFG.indexZones.min, 1) + ' and ' + f(CFG.indexZones.max, 1) + '.' });
 
     if (ENG.validateInput) {
       ENG.validateInput(input, CFG).forEach(function (issue) { issues.push({ level: 'red', text: issue.text }); });
@@ -131,7 +143,7 @@
     var paxCount = state.pax.length, seatCount = state.pax.filter(function (p) { return p.cat !== 'I'; }).length;
     var infantCount = state.pax.filter(function (p) { return p.cat === 'I'; }).length;
     var paxWt = state.pax.reduce(function (s, p) { return s + paxWeight(p); }, 0);
-    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt };
+    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt, preferredIndex: preferredIndex };
   }
 
   /* ---------- shared UI bits ---------- */
@@ -307,6 +319,20 @@
       (counts['?'] ? card('?', 'Unclear', 0, 'need') : '') +
       '</div>';
   }
+  function renderPreferredIndexControl() {
+    var preferred = preferredIndexValue(), min = CFG.indexZones.min, max = CFG.indexZones.max;
+    var presets = [{ label: 'Auto', value: '' }, { label: '9.0', value: '9' }, { label: '10.0', value: '10' }, { label: '11.0', value: '11' }];
+    var chips = presets.map(function (preset) {
+      var active = (preferred === null && preset.value === '') || (preset.value !== '' && preferred === +preset.value);
+      return '<button type="button" class="index-preset' + (active ? ' active' : '') + '" data-action="setPreferredIndex" data-value="' + preset.value + '">' + preset.label + '</button>';
+    }).join('');
+    return '<div class="index-target">' +
+      '<div class="index-target-head"><div><b>Preferred takeoff index</b><span>Optional pilot target</span></div><div class="index-target-value">' + (preferred === null ? 'AUTO' : f(preferred, 1)) + '</div></div>' +
+      '<div class="index-preset-row">' + chips + '</div>' +
+      '<label class="index-custom"><span>Custom</span><input type="number" inputmode="decimal" min="' + min + '" max="' + max + '" step="0.1" data-preferred-index value="' + (preferred === null ? '' : esc(preferred)) + '" placeholder="Auto" aria-label="Preferred takeoff index"><b>IDX</b></label>' +
+      '<p>Configured normal zone: ' + f(CFG.indexZones.fwdAmberMax, 1) + '–' + f(CFG.indexZones.aftAmberMin, 1) + '. Safety checks override the target.</p>' +
+    '</div>';
+  }
   function renderReview() {
     var c = compute();
     var indexed = state.pax.map(function (p, i) { return { p: p, i: i }; });
@@ -331,6 +357,7 @@
       '<section class="card seating-card">' +
         '<div class="card-head"><div><span class="section-kicker">Automatic seating</span><h2>Balanced cabin</h2></div><span class="balance-badge">CG assisted</span></div>' +
         '<p class="muted sm" style="margin-top:0">The app places passengers for a balanced longitudinal load. Tap any seat to make an operational adjustment.</p>' +
+        renderPreferredIndexControl() +
         renderSeatMap() +
         '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span></div>' +
         (c.needReview.length ? '<div class="banner amber sm">' + c.needReview.length + ' passenger(s) still need a valid category or lap assignment.</div>' : '') +
@@ -391,7 +418,12 @@
       if (!silent) toast('Set every unclear category before CG optimization.');
       render(); return false;
     }
-    var result = SEATING.optimize(state.pax, engineInput(), CFG, ENG);
+    var preferredIndex = preferredIndexValue();
+    if (!preferredIndexIsValid(preferredIndex)) {
+      if (!silent) toast('Preferred index must be between ' + f(CFG.indexZones.min, 1) + ' and ' + f(CFG.indexZones.max, 1) + '.');
+      render(); return false;
+    }
+    var result = SEATING.optimize(state.pax, engineInput(), CFG, ENG, { preferredIndex: preferredIndex });
     if (!result.changed) {
       centerOutArrangement();
       if (!silent) toast(result.reason || 'Seats could not be balanced.');
@@ -399,8 +431,12 @@
     }
     state.pax = result.passengers.sort(function (a, b) { var seatDiff = SEATS.indexOf(a.seat) - SEATS.indexOf(b.seat); return seatDiff || ((a.cat === 'I' ? 1 : 0) - (b.cat === 'I' ? 1 : 0)); });
     if (!silent) {
-      var mac = result.metrics && result.metrics.to ? f(result.metrics.to.mac, 1) + '% MAC' : 'the current load';
-      toast('Seats balanced for ' + mac + '. Verify any operational seating restrictions.');
+      if (preferredIndex !== null && result.metrics && result.metrics.to) {
+        toast('Target ' + f(preferredIndex, 1) + ' · achieved TO index ' + f(result.metrics.to.index, 2) + '. Safety checks retained.');
+      } else {
+        var mac = result.metrics && result.metrics.to ? f(result.metrics.to.mac, 1) + '% MAC' : 'the current load';
+        toast('Seats balanced for ' + mac + '. Verify any operational seating restrictions.');
+      }
     }
     render(); return true;
   }
@@ -430,7 +466,7 @@
         '</div>' +
       '</section>' +
       '<section class="card"><h2>Remarks</h2><textarea data-bind="flight.remarks" placeholder="Special loads, dangerous goods, notes (appears on the load sheet)">' + esc(state.flight.remarks) + '</textarea></section>' +
-      '<section class="card optimize-panel"><div><span class="section-kicker">Final seating check</span><h2>Balance with the complete load</h2><p class="muted sm">Now that fuel and baggage are entered, run the seating optimizer again for the best available CG.</p></div><button class="btn primary block" data-action="optimizeSeats"' + (state.pax.length ? '' : ' disabled') + '>Optimize passenger seats</button></section>' +
+      '<section class="card optimize-panel"><div><span class="section-kicker">Final seating check</span><h2>Balance with the complete load</h2><p class="muted sm">Now that fuel and baggage are entered, choose an optional takeoff-index target and optimize again.</p></div>' + renderPreferredIndexControl() + '<button class="btn primary block" data-action="optimizeSeats"' + (state.pax.length ? '' : ' disabled') + '>Optimize passenger seats</button></section>' +
       liveSummary();
   }
   function liveSummary() {
@@ -442,6 +478,9 @@
   /* ---------- step: Results ---------- */
   function renderResults() {
     var c = compute(), m = c.m, s = statusWord(c.level, c.complete);
+    var targetSummary = c.preferredIndex === null
+      ? '<div class="target-summary auto"><span>Seating target</span><b>Automatic balance</b><small>Takeoff index ' + f(m.to.index, 2) + '</small></div>'
+      : '<div class="target-summary"><span>Preferred TO index</span><b>' + f(c.preferredIndex, 1) + ' target</b><small>Achieved ' + f(m.to.index, 2) + ' · difference ' + f(Math.abs(m.to.index - c.preferredIndex), 2) + '</small></div>';
     var issues = c.issues.length ? '<ul class="issues">' + c.issues.map(function (i) { return '<li class="' + i.level + '">' + esc(i.text) + '</li>'; }).join('') + '</ul>' : '<p class="muted sm">All checks passed within the configured limits.</p>';
     var exportLabel = CFG.meta.verified ? 'Export load sheet' : 'Print review draft';
     return '' +
@@ -451,6 +490,7 @@
       '</section>' +
       (!CFG.meta.verified ? '<div class="notice unverified strong"><b>Not for operational use</b><span>The configured envelope and aircraft constants are still unverified.</span></div>' : '') +
       '<section class="card"><div class="section-title"><div><span class="section-kicker">Takeoff and landing</span><h2>CG envelope</h2></div></div>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">' + (CFG.meta.verified ? 'Approved' : 'Prototype') + ' band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC · MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
+      targetSummary +
       '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b> &middot; <b>' + c.seatCount + ' seats</b> &middot; <b>' + f(c.paxWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span></div></section>' +
       '<section class="card">' +
         '<div class="section-title"><div><span class="section-kicker">Load summary</span><h2>Weight and balance</h2></div></div>' +
@@ -781,7 +821,7 @@
       '<div class="ps-grid">' +
         rows('Aircraft &amp; Fuel', [['Registration', esc(state.aircraft.reg || '—')], ['DOW', f(num(state.aircraft.dow)) + ' lb'], ['DOI', f(num(state.aircraft.doi), 2)], ['Block fuel', f(num(state.fuel.block)) + ' lb'], ['Trip fuel', f(num(state.fuel.trip)) + ' lb'], ['Takeoff fuel', f(m.tof) + ' lb']]) +
         rows('Weights', [['Zero fuel weight', f(m.zfw) + ' lb'], ['Payload', f(m.payload) + ' lb'], ['Takeoff weight', f(m.tow) + ' lb'], ['Landing weight', f(m.lw) + ' lb'], ['Underload', f(CFG.limits.mtow - m.tow) + ' lb']]) +
-        rows('Takeoff CG', [['Arm', f(m.to.arm, 2)], ['Index', f(m.to.index, 2)], ['%MAC', f(m.to.mac, 2)]]) +
+        rows('Takeoff CG', [['Preferred index', c.preferredIndex === null ? 'Auto' : f(c.preferredIndex, 1)], ['Achieved index', f(m.to.index, 2)], ['Arm', f(m.to.arm, 2)], ['%MAC', f(m.to.mac, 2)]]) +
         rows('Landing CG', [['Arm', f(m.la.arm, 2)], ['Index', f(m.la.index, 2)], ['%MAC', f(m.la.mac, 2)]]) +
       '</div>' +
       '<div class="ps-sec"><h3>Passengers (' + c.paxCount + ' persons · ' + c.seatCount + ' seats · ' + f(c.paxWt) + ' lb)</h3>' + (paxRows || '<div class="ps-row"><span>None</span><b>—</b></div>') + '</div>' +
@@ -802,6 +842,7 @@
     var keepReg = state.aircraft.reg, keepDow = state.aircraft.dow, keepDoi = state.aircraft.doi;
     state.flight = { no: '', route: '', remarks: '' }; state.fuel = { block: 0, trip: 0 };
     state.cargo = { stretcher: 0, bagR4: 0, bagR5: 0, bagD: 0, bagAft: 0, bagShelf: 0 };
+    state.preferences = { preferredIndex: '' };
     state.pax = []; state.ocrText = '';
     state.aircraft = { reg: keepReg, dow: keepDow, doi: keepDoi };
     clearSelectedFile();
@@ -813,6 +854,11 @@
     var el = e.target, bind = el.getAttribute && el.getAttribute('data-bind');
     var scanBind = el.getAttribute && el.getAttribute('data-scan-bind');
     var scanLoadBind = el.getAttribute && el.getAttribute('data-scan-load-bind');
+    if (el.hasAttribute && el.hasAttribute('data-preferred-index')) {
+      state.preferences.preferredIndex = String(el.value).trim() === '' ? '' : el.value;
+      save();
+      return;
+    }
     if (scanResult && scanBind) {
       var counts = scanResult.counts, previous = Math.max(0, Math.floor(num(counts[scanBind]))), next = Math.max(0, Math.min(15, Math.floor(num(el.value))));
       counts[scanBind] = next;
@@ -858,6 +904,7 @@
       case 'cycleSeat': cycleSeat(t.getAttribute('data-seat')); break;
       case 'adjustCount': var cc = categoryCounts(), cat = t.getAttribute('data-cat'); setCategoryCount(cat, cc[cat] + num(t.getAttribute('data-delta'))); break;
       case 'optimizeSeats': arrangeSeats(false); break;
+      case 'setPreferredIndex': state.preferences.preferredIndex = t.getAttribute('data-value'); render(); break;
       case 'clearPax': clearPax(); break;
       case 'delPax': delPax(+i); break;
       case 'savePreset': doSavePreset(); break;

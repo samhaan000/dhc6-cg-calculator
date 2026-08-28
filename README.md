@@ -33,7 +33,10 @@ load totals are editable before import, so a faint gender column never blocks
 the workflow. Passenger names are optional. Infants are attached to an occupied
 adult seat as lap passengers: their weight is included at that seat arm without
 using another cabin seat. The seating optimizer creates a balanced initial
-cabin and can be run again after fuel and baggage are entered;
+cabin and can be run again after fuel and baggage are entered. Pilots can leave
+the preferred takeoff index on Auto, choose a quick target, or enter a custom
+target; the optimizer reports the closest achieved value while prioritizing the
+configured takeoff/landing CG and index safety zones;
 the completed load is still checked against every configured CG and weight limit.
 Category totals are cross-checked against the printed passenger-weight total;
 unclear passengers are flagged and counts above the 15-seat capacity are blocked.

@@ -67,6 +67,27 @@ test('aft baggage makes the optimizer choose a more forward passenger moment', (
   assert.ok(aftBag.metrics.pm < noBag.metrics.pm, `expected ${aftBag.metrics.pm} < ${noBag.metrics.pm}`);
 });
 
+test('preferred takeoff index moves the cabin toward the pilot target', () => {
+  const list = passengers(3, 7, 0, 0);
+  const input = baseInput({ bagD: 150 });
+  const forward = seating.optimize(list, input, cfg, engine, { preferredIndex: 9.0 });
+  const aft = seating.optimize(list, input, cfg, engine, { preferredIndex: 10.5 });
+  assert.strictEqual(forward.preferredIndex, 9);
+  assert.strictEqual(aft.preferredIndex, 10.5);
+  assert.ok(forward.metrics.to.index < aft.metrics.to.index, `expected ${forward.metrics.to.index} < ${aft.metrics.to.index}`);
+  assert.ok(Math.abs(forward.achievedIndex - 9) < 0.1);
+  assert.ok(Math.abs(aft.achievedIndex - 10.5) < 0.1);
+});
+
+test('preferred index never outranks configured safety zones', () => {
+  const list = passengers(3, 7, 0, 0);
+  const result = seating.optimize(list, baseInput({ bagD: 150 }), cfg, engine, { preferredIndex: cfg.indexZones.max });
+  assert.notStrictEqual(engine.indexZone(result.metrics.to.index, cfg).level, 'red');
+  assert.notStrictEqual(engine.indexZone(result.metrics.la.index, cfg).level, 'red');
+  assert.ok(engine.macInLimit(result.metrics.to.mac, cfg));
+  assert.ok(engine.macInLimit(result.metrics.la.mac, cfg));
+});
+
 test('actual passenger weights are preserved', () => {
   const list = passengers(2, 2, 0, 0);
   list[0].weight = 225;
