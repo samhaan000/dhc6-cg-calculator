@@ -24,6 +24,7 @@
     pax: [],
     ocrText: ''
   };
+  var stepErrors = [];
 
   /* ---------- helpers ---------- */
   function $(id) { return document.getElementById(id); }
@@ -147,7 +148,65 @@
     var infantCount = state.pax.filter(function (p) { return p.cat === 'I'; }).length;
     var paxWt = state.pax.filter(function (p) { return p.cat !== 'CC'; }).reduce(function (s, p) { return s + paxWeight(p); }, 0);
     var crewWt = state.pax.filter(function (p) { return p.cat === 'CC'; }).reduce(function (s, p) { return s + paxWeight(p); }, 0);
-    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, paxCount: paxCount, crewCount: crewCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt, crewWt: crewWt, preferredIndex: preferredIndex };
+    return { m: m, issues: issues, level: level, complete: complete, ready: operational, operational: operational, canPrintDraft: canPrintDraft, tz: tz, lz: lz, toMacOk: toMacOk, laMacOk: laMacOk, needReview: needReview, duplicateSeats: dup, lapIssue: lapIssue, paxCount: paxCount, crewCount: crewCount, seatCount: seatCount, infantCount: infantCount, paxWt: paxWt, crewWt: crewWt, preferredIndex: preferredIndex };
+  }
+
+  /* ---------- progressive validation ---------- */
+  function uniqueErrors(errors) {
+    var seen = {};
+    return errors.filter(function (error) { if (seen[error.text]) return false; seen[error.text] = true; return true; });
+  }
+  function validateStep(step) {
+    var errors = [], c, input;
+    if (step === 0) {
+      if (!(num(state.aircraft.dow) > 0)) errors.push({ text: 'Enter the aircraft DOW.', target: 'field-aircraft-dow' });
+      if (num(state.aircraft.doi) === 0) errors.push({ text: 'Enter the aircraft DOI.', target: 'field-aircraft-doi' });
+    } else if (step === 2) {
+      c = compute();
+      if (!state.pax.length) errors.push({ text: 'Add passengers before continuing.', target: '' });
+      if (c.needReview.length) errors.push({ text: c.needReview.length + ' passenger(s) still need a valid category or seat.', target: '' });
+      if (c.duplicateSeats) errors.push({ text: 'Assign only one seat-occupying person to each seat.', target: '' });
+      if (c.lapIssue) errors.push({ text: 'Each infant must share a different adult passenger seat.', target: '' });
+      if (!preferredIndexIsValid(c.preferredIndex)) errors.push({ text: 'Set the preferred index between ' + f(CFG.indexZones.min, 1) + ' and ' + f(CFG.indexZones.max, 1) + ', or choose Auto.', target: '' });
+    } else if (step === 3) {
+      input = engineInput();
+      if (!(num(state.fuel.block) > 0)) errors.push({ text: 'Enter block fuel.', target: 'field-fuel-block' });
+      if (ENG.validateInput) ENG.validateInput(input, CFG).forEach(function (issue) {
+        var target = /trip fuel/i.test(issue.text) ? 'field-fuel-trip' : (/block fuel/i.test(issue.text) ? 'field-fuel-block' : '');
+        errors.push({ text: issue.text, target: target });
+      });
+    }
+    return uniqueErrors(errors);
+  }
+  function stepComplete(step) {
+    if (step === 1) return state.pax.length > 0;
+    if (step === 4) return compute().complete;
+    return validateStep(step).length === 0;
+  }
+  function renderStepErrors() {
+    if (!stepErrors.length) return '';
+    return '<section class="error-summary" id="stepErrorSummary" role="alert" tabindex="-1"><span class="error-mark">!</span><div><b>Fix before continuing</b><ul>' + stepErrors.map(function (error) {
+      var content = esc(error.text);
+      return '<li>' + (error.target ? '<button data-action="focusField" data-target="' + esc(error.target) + '">' + content + '</button>' : content) + '</li>';
+    }).join('') + '</ul></div></section>';
+  }
+  function clearStepErrors() {
+    if (!stepErrors.length) return;
+    stepErrors = [];
+    var summary = $('stepErrorSummary'); if (summary) summary.remove();
+    Array.prototype.forEach.call(document.querySelectorAll('.field-error'), function (field) { field.classList.remove('field-error'); });
+    Array.prototype.forEach.call(document.querySelectorAll('[aria-invalid="true"]'), function (field) { field.removeAttribute('aria-invalid'); });
+  }
+  function attemptNext() {
+    var errors = validateStep(state.step);
+    if (errors.length) {
+      stepErrors = errors;
+      render();
+      setTimeout(function () { var summary = $('stepErrorSummary'); if (summary) summary.focus(); }, 0);
+      return;
+    }
+    stepErrors = [];
+    go(state.step + 1);
   }
 
   /* ---------- shared UI bits ---------- */
@@ -211,7 +270,8 @@
   function field(label, bind, val, type, ph) {
     var id = 'field-' + bind.replace(/[^a-z0-9]+/gi, '-');
     var numeric = type === 'number';
-    return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" data-bind="' + bind + '" type="' + (type || 'text') + '" ' + (numeric ? 'inputmode="decimal" min="0" step="any"' : 'autocomplete="off"') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '" aria-label="' + esc(label) + '"></div>';
+    var required = bind === 'aircraft.dow' || bind === 'aircraft.doi' || bind === 'fuel.block';
+    return '<div class="field"><label for="' + id + '">' + label + (required ? '<span class="required-tag">Required</span>' : '') + '</label><input id="' + id + '" data-bind="' + bind + '" type="' + (type || 'text') + '" ' + (numeric ? 'inputmode="decimal" min="0" step="any"' : 'autocomplete="off"') + (required ? ' aria-required="true"' : '') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '" aria-label="' + esc(label) + '"></div>';
   }
   function field2(label, bind, val, type, ph) { return '<div style="grid-column:span 2">' + field(label, bind, val, type, ph) + '</div>'; }
 
@@ -511,6 +571,11 @@
         '<div class="banner-sub">' + (c.complete ? ('Takeoff CG ' + f(m.to.mac, 1) + '% MAC · TOW ' + f(m.tow) + ' lb') : 'Complete the required fields and review all passengers') + '</div>' +
       '</section>' +
       (!CFG.meta.verified ? '<div class="notice unverified strong"><b>Not for operational use</b><span>The configured envelope and aircraft constants are still unverified.</span></div>' : '') +
+      '<nav class="edit-actions" aria-label="Edit calculation sections">' +
+        '<button data-action="goto" data-i="0"><span>Aircraft</span><b>' + esc(state.aircraft.reg || 'Set up') + '</b></button>' +
+        '<button data-action="goto" data-i="2"><span>Cabin</span><b>' + c.paxCount + ' pax' + (c.crewCount ? ' + crew' : '') + '</b></button>' +
+        '<button data-action="goto" data-i="3"><span>Load</span><b>' + f(m.payload) + ' lb</b></button>' +
+      '</nav>' +
       '<section class="card"><div class="section-title"><div><span class="section-kicker">Takeoff and landing</span><h2>CG envelope</h2></div></div>' + envelopeSVG(m, c) + '<div class="legend sm muted" style="justify-content:center">' + (CFG.meta.verified ? 'Approved' : 'Prototype') + ' band ' + CFG.limits.cgFwd + '–' + CFG.limits.cgAft + '% MAC · MTOW ' + f(CFG.limits.mtow) + ' lb</div></section>' +
       targetSummary +
       '<section class="card"><div class="card-head"><h2>Cabin Layout</h2><div class="head-chip"><b>' + c.paxCount + ' pax</b>' + (c.crewCount ? ' &middot; <b>' + c.crewCount + ' crew</b>' : '') + ' &middot; <b>' + c.seatCount + ' seats</b> &middot; <b>' + f(c.paxWt + c.crewWt) + ' lb</b></div></div>' + renderSeatMap(true) + '<div class="seat-legend sm"><span class="lg cat-M">M Male</span><span class="lg cat-F">F Female</span><span class="lg cat-C">C Child</span><span class="lg cat-I">+I Lap infant</span><span class="lg crew">CC Cabin crew</span></div></section>' +
@@ -563,14 +628,20 @@
 
   /* ---------- stepper + nav ---------- */
   function renderStepper() {
-    return STEPS.map(function (name, i) {
-      var cls = i === state.step ? 'on' : (i < state.step ? 'visited' : '');
-      return '<button class="stepdot ' + cls + '" data-action="goto" data-i="' + i + '"><span class="n">' + (i + 1) + '</span><span class="t">' + name + '</span></button>';
+    var percent = Math.round(((state.step + 1) / STEPS.length) * 100);
+    var flightLabel = [state.aircraft.reg, state.flight.no].filter(Boolean).join(' · ') || 'New flight';
+    var steps = STEPS.map(function (name, i) {
+      var done = i < state.step && stepComplete(i), cls = i === state.step ? 'on' : (done ? 'done' : (i < state.step ? 'visited' : ''));
+      return '<button class="stepdot ' + cls + '" data-action="goto" data-i="' + i + '"' + (i === state.step ? ' aria-current="step"' : '') + '><span class="n">' + (done ? '&#10003;' : (i + 1)) + '</span><span class="t">' + name + '</span></button>';
     }).join('');
+    return '<div class="stepper-summary"><div><span>Step ' + (state.step + 1) + ' of ' + STEPS.length + '</span><b>' + STEPS[state.step] + '</b></div><div class="flight-ref">' + esc(flightLabel) + '</div></div>' +
+      '<div class="progress-track" role="progressbar" aria-label="Calculation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '"><span style="width:' + percent + '%"></span></div>' +
+      '<div class="steps-row">' + steps + '</div>';
   }
   function renderNav() {
     var prev = state.step > 0 ? '<button class="btn ghost" data-action="prev">Back</button>' : '<span></span>';
-    var next = state.step < STEPS.length - 1 ? '<button class="btn primary" data-action="next">' + (state.step === 0 ? 'Continue' : (state.step === 3 ? 'Calculate CG' : 'Next')) + '</button>' : '<button class="btn ghost" data-action="newFlight">New Flight</button>';
+    var nextLabel = state.step === 3 ? '<span>Calculate CG<small>Show results</small></span>' : '<span>Continue<small>to ' + STEPS[state.step + 1] + '</small></span>';
+    var next = state.step < STEPS.length - 1 ? '<button class="btn primary nav-next" data-action="next">' + nextLabel + '</button>' : '<button class="btn ghost" data-action="newFlight">New Flight</button>';
     return prev + next;
   }
 
@@ -578,13 +649,18 @@
   var RENDERERS = [renderDashboard, renderScan, renderReview, renderCargo, renderResults];
   function render() {
     $('stepper').innerHTML = renderStepper();
-    $('view').innerHTML = RENDERERS[state.step]();
+    $('view').innerHTML = renderStepErrors() + RENDERERS[state.step]();
     $('nav').innerHTML = renderNav();
     $('view').scrollTop = 0; window.scrollTo(0, 0);
     if (state.step === 1) wireScanInputs();
+    stepErrors.forEach(function (error) {
+      if (!error.target) return;
+      var field = $(error.target);
+      if (field) { field.setAttribute('aria-invalid', 'true'); var wrap = field.closest('.field'); if (wrap) wrap.classList.add('field-error'); }
+    });
     save();
   }
-  function go(i) { state.step = Math.max(0, Math.min(STEPS.length - 1, i)); render(); }
+  function go(i) { stepErrors = []; state.step = Math.max(0, Math.min(STEPS.length - 1, i)); render(); }
 
   /* ---------- binding ---------- */
   function setBind(path, value) {
@@ -876,6 +952,7 @@
   /* ---------- events ---------- */
   function onInput(e) {
     var el = e.target, bind = el.getAttribute && el.getAttribute('data-bind');
+    clearStepErrors();
     var scanBind = el.getAttribute && el.getAttribute('data-scan-bind');
     var scanLoadBind = el.getAttribute && el.getAttribute('data-scan-load-bind');
     if (el.hasAttribute && el.hasAttribute('data-preferred-index')) {
@@ -915,7 +992,7 @@
     var t = e.target.closest('[data-action]'); if (!t) return;
     var a = t.getAttribute('data-action'), i = t.getAttribute('data-i');
     switch (a) {
-      case 'next': go(state.step + 1); break;
+      case 'next': attemptNext(); break;
       case 'prev': go(state.step - 1); break;
       case 'goto': go(+i); break;
       case 'goScan': go(1); break;
@@ -929,6 +1006,7 @@
       case 'adjustCount': var cc = categoryCounts(), cat = t.getAttribute('data-cat'); setCategoryCount(cat, cc[cat] + num(t.getAttribute('data-delta'))); break;
       case 'optimizeSeats': arrangeSeats(false); break;
       case 'setPreferredIndex': state.preferences.preferredIndex = t.getAttribute('data-value'); render(); break;
+      case 'focusField': var target = $(t.getAttribute('data-target')); if (target) { target.focus(); target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } break;
       case 'clearPax': clearPax(); break;
       case 'delPax': delPax(+i); break;
       case 'savePreset': doSavePreset(); break;
@@ -939,6 +1017,7 @@
   }
   function onChange(e) {
     var el = e.target;
+    clearStepErrors();
     if (el.matches && el.matches('[data-action="loadPreset"]')) { if (el.value) doLoadPreset(el.value); return; }
     if (el.hasAttribute && el.hasAttribute('data-extra-crew')) { setExtraCrew(el.checked); return; }
     if (el.hasAttribute && el.hasAttribute('data-cat-count')) setCategoryCount(el.getAttribute('data-cat-count'), el.value);

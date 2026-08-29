@@ -46,6 +46,14 @@ test('app boots and renders the dashboard', () => {
   if (!/Aircraft/.test($('view').innerHTML)) throw new Error('dashboard not rendered');
   if (!$('stepper').innerHTML) throw new Error('stepper empty');
   if (!$('nav').innerHTML) throw new Error('nav empty');
+  if (!q('[role="progressbar"]') || !q('[aria-current="step"]')) throw new Error('accessible progress status missing');
+});
+
+test('progressive validation explains missing required aircraft data', () => {
+  click(actionBtn('next'));
+  if (!$('stepErrorSummary') || !/DOW/.test($('stepErrorSummary').textContent) || !/DOI/.test($('stepErrorSummary').textContent)) throw new Error('required-field summary missing');
+  if (!q('[data-bind="aircraft.dow"][aria-invalid="true"]')) throw new Error('invalid field is not identified');
+  if (!/Aircraft setup/.test($('view').innerHTML)) throw new Error('advanced despite missing aircraft data');
 });
 
 test('entering aircraft data updates state and stats', () => {
@@ -128,6 +136,9 @@ test('per-passenger weight override works', () => {
 
 test('cargo & fuel step accepts fuel/baggage', () => {
   click(actionBtn('next'));   // review -> cargo
+  click(actionBtn('next'));   // required block fuel is still missing
+  if (!$('stepErrorSummary') || !/block fuel/i.test($('stepErrorSummary').textContent)) throw new Error('missing fuel was not explained');
+  if (!/Departure load/.test($('view').innerHTML)) throw new Error('advanced despite missing fuel');
   setVal(q('[data-bind="fuel.block"]'), '2000');
   setVal(q('[data-bind="fuel.trip"]'), '400');
   setVal(q('[data-bind="cargo.bagD"]'), '150');
@@ -143,6 +154,7 @@ test('results step shows a status banner and CG envelope chart', () => {
   if (!q('.seat-tile.ro')) throw new Error('no read-only cabin layout on results');
   if (!/Preferred TO index/.test(html) || !/Achieved/.test(html)) throw new Error('preferred/achieved index summary missing');
   if (!/1 crew/.test(html)) throw new Error('extra cabin crew missing from results');
+  if (qa('.edit-actions [data-action="goto"]').length !== 3) throw new Error('results cannot be edited by section');
 });
 
 test('export builds a load sheet without error', () => {

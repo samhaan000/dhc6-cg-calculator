@@ -4,6 +4,11 @@ Offline-first PWA for DHC-6 Twin Otter weight and balance. A professional,
 mobile-first workflow: aircraft setup → private on-device manifest scan →
 passenger and seat review → cargo and fuel → CG results and review sheet.
 
+The mobile workflow uses 44 px-or-larger primary touch targets, continuous
+step/progress feedback, required-field cues, focused error summaries, and
+section-level edit shortcuts from results. These patterns follow current Apple
+HIG, WCAG 2.2, GOV.UK validation guidance, and established usability heuristics.
+
 > **Safety:** Prototype. Every aircraft-critical value lives in `config.js` and
 > is **not** verified against an operator-approved DHC-6 W&B manual. Audit all
 > arms, index/MAC constants, weights and limits against current approved data
